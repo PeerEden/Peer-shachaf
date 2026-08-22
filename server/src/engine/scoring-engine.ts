@@ -1,4 +1,4 @@
-import { scorePrediction } from '@league/shared';
+import { scorePrediction } from '../../../shared/src/index.js';
 import { eq } from 'drizzle-orm';
 import { fixtures, predictions, predictionScores, rounds } from '../db/schema.js';
 import { audit, type Actor } from '../lib/audit.js';

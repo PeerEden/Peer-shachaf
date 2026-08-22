@@ -1,4 +1,4 @@
-import type { TitleCode } from '@league/shared';
+import type { TitleCode } from '../../../shared/src/index.js';
 import { and, asc, desc, eq } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { fixtures, predictionScores, rounds, roundTitles } from '../db/schema.js';
