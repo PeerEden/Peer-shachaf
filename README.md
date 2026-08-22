@@ -55,7 +55,20 @@ npm run build && (cd client && npx playwright test)   # E2E walkthrough
 
 The app is one long-lived Node process with a SQLite file — it needs a host with
 a **persistent disk** and **HTTPS** (required for PWA install + push):
-a small VPS, Railway/Fly.io with a volume, etc. Serverless hosts
-(Vercel/Netlify) will **not** work. Full guide: see `docs/DEPLOY.md`.
+a small VPS, Railway/Fly.io with a volume, etc. Full guide: see `docs/DEPLOY.md`.
 
 Backup = copy the `data/` folder (or download from the admin panel).
+
+## דמו ב-Vercel / Vercel demo mode
+
+אפשר לייבא את הריפו ל-Vercel והוא יעלה **כדמו** בלי שום הגדרה נוספת
+(`vercel.json` + `api/index.ts` דואגים לזה). חשוב לדעת:
+
+- מסד הנתונים זמני (`/tmp`) — **הנתונים מתאפסים** בכל deploy ומדי פעם (cold start).
+- תזכורות Push לא נשלחות (אין תהליך קבוע ב-serverless).
+- נתוני דמו נטענים אוטומטית: `dror` / `demo123` (אדמין), `avi` / `demo123`,
+  `yossi` / `demo123`. קוד הזמנה להרשמה: `DEMO` (או `INVITE_CODE` אם הוגדר).
+
+Importing the repo into Vercel deploys a self-contained **demo**: ephemeral
+SQLite in `/tmp` (data resets on cold starts/deploys), no push reminders.
+For a real league with persistent data, deploy per `docs/DEPLOY.md`.
