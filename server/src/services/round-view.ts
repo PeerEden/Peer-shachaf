@@ -4,7 +4,7 @@ import type {
   PredictionScoreDto,
   RoundDto,
   TeamDto,
-} from '@league/shared';
+} from '../../../shared/src/index.js';
 import { asc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
 import { fixtures, predictions, predictionScores, rounds, teams, users } from '../db/schema.js';

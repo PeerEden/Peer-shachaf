@@ -1,4 +1,4 @@
-import type { StandingsEntry, TitleCode } from '@league/shared';
+import type { StandingsEntry, TitleCode } from '../../../shared/src/index.js';
 import { and, desc, eq } from 'drizzle-orm';
 import { rounds, roundUserStats } from '../db/schema.js';
 import { computeSeasonTotals } from '../engine/standings.js';
