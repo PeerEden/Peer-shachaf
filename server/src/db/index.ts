@@ -8,12 +8,13 @@ import * as schema from './schema.js';
 
 export { schema };
 
-const migrationsFolder = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  '..',
-  'drizzle',
-);
+// Bundlers (e.g. Vercel's) relocate this module, so the import.meta-relative
+// path can miss; fall back to the repo-root layout (cwd = /var/task on Vercel).
+const migrationsCandidates = [
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'drizzle'),
+  path.resolve(process.cwd(), 'server', 'drizzle'),
+];
+const migrationsFolder = migrationsCandidates.find((p) => fs.existsSync(p)) ?? migrationsCandidates[0]!;
 
 /**
  * Opens (creating if needed) the SQLite database and applies pending

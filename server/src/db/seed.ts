@@ -9,6 +9,7 @@
 import { config, dataPath } from '../config.js';
 import { generateInviteCode } from '../lib/crypto.js';
 import { createDb, type Db } from './index.js';
+import { seedDemo } from './seed-demo.js';
 import { leagueSettings, rounds, seasons, teams } from './schema.js';
 
 // 2025/26 lineup — the 2026/27 lineup isn't final; the admin edits teams in the panel.
@@ -85,7 +86,6 @@ if (isMain) {
   console.log(`🔑 League invite code: ${result.inviteCode}`);
 
   if (process.argv.includes('--demo')) {
-    const { seedDemo } = await import('./seed-demo.js');
     seedDemo(db);
   }
 }
