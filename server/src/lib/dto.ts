@@ -1,4 +1,4 @@
-import type { UserPrivate, UserPublic } from '@league/shared';
+import type { UserPrivate, UserPublic } from '../../../shared/src/index.js';
 import type { users } from '../db/schema.js';
 
 type UserRow = typeof users.$inferSelect;
