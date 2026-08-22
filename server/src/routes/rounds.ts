@@ -1,4 +1,4 @@
-import { predictionSchema } from '@league/shared';
+import { predictionSchema } from '../../../shared/src/index.js';
 import { asc, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import type { AppDeps } from '../app.js';

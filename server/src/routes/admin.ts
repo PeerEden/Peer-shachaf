@@ -7,7 +7,7 @@ import {
   resultSchema,
   roundCreateSchema,
   teamSchema,
-} from '@league/shared';
+} from '../../../shared/src/index.js';
 import { desc, eq } from 'drizzle-orm';
 import { Router, type Request } from 'express';
 import { z } from 'zod';

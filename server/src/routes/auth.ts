@@ -1,4 +1,4 @@
-import { loginSchema, registerSchema } from '@league/shared';
+import { loginSchema, registerSchema } from '../../../shared/src/index.js';
 import { Router } from 'express';
 import type { AppDeps } from '../app.js';
 import {

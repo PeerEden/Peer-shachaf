@@ -1,4 +1,4 @@
-import { pushSubscriptionSchema } from '@league/shared';
+import { pushSubscriptionSchema } from '../../../shared/src/index.js';
 import { and, eq } from 'drizzle-orm';
 import { Router } from 'express';
 import { z } from 'zod';

@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { changePasswordSchema, updateProfileSchema } from '@league/shared';
+import { changePasswordSchema, updateProfileSchema } from '../../../shared/src/index.js';
 import { and, eq, ne } from 'drizzle-orm';
 import { Router } from 'express';
 import multer from 'multer';
