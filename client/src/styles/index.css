@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+
+@theme {
+  --font-sans: 'Heebo', system-ui, -apple-system, sans-serif;
+  --font-display: 'Rubik', 'Heebo', system-ui, sans-serif;
+
+  /* "מגרש בלילה" — dark pitch palette */
+  --color-pitch-950: #04180f;
+  --color-pitch-900: #06251b;
+  --color-pitch-800: #0a3527;
+  --color-pitch-700: #114a36;
+  --color-grass-500: #22c55e;
+  --color-grass-400: #4ade80;
+  --color-grass-300: #86efac;
+  --color-gold-400: #facc15;
+  --color-gold-300: #fde047;
+  --color-card: #0b2e21;
+  --color-card-raised: #10402e;
+  --color-line: #1d5c42;
+  --color-ink: #f0fdf4;
+  --color-ink-dim: #a7d4bd;
+}
+
+html {
+  background-color: var(--color-pitch-950);
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink);
+  background:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgba(34, 197, 94, 0.18), transparent),
+    var(--color-pitch-950);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Hide number input spinners — the app uses big +/- steppers instead */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
