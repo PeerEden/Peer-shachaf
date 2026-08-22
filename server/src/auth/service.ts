@@ -1,4 +1,4 @@
-import type { RegisterInput } from '@league/shared';
+import type { RegisterInput } from '../../../shared/src/index.js';
 import bcrypt from 'bcryptjs';
 import { and, eq, lt, or } from 'drizzle-orm';
 import type { Db } from '../db/index.js';
