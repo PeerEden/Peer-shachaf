@@ -14,6 +14,8 @@ import type {
 
 export interface MeResponse {
   user: UserPrivate | null;
+  /** Server is running on throwaway storage — accounts will be lost. */
+  ephemeralStorage?: boolean;
 }
 
 export interface RoundPredictionView {

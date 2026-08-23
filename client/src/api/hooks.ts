@@ -113,7 +113,9 @@ export function useLogout() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => api<{ ok: true }>('/api/auth/logout', { method: 'POST' }),
-    onSuccess: () => {
+    // onSettled, not onSuccess: if the server call failed we still drop every
+    // cached query, so the user actually lands back on the login screen.
+    onSettled: () => {
       qc.clear();
     },
   });
