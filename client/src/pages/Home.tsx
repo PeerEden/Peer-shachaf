@@ -3,6 +3,7 @@ import { useHome } from '../api/hooks';
 import { Avatar } from '../components/Avatar';
 import { Countdown } from '../components/Countdown';
 import { Podium } from '../components/Podium';
+import { RoundFixtures } from '../components/RoundFixtures';
 import { StandingsTable } from '../components/StandingsTable';
 import { Card, EmptyState, ErrorNote, SectionTitle, Spinner } from '../components/ui';
 import { fmtDateTime } from '../lib/format';
@@ -123,6 +124,20 @@ export default function Home() {
                 <span>{s.done ? '✓' : `${s.filled}/${s.total}`}</span>
               </span>
             ))}
+          </div>
+        </Card>
+      )}
+
+      {activeRound && (
+        <Card>
+          <div className="flex items-center justify-between">
+            <h2 className="font-display text-base font-bold">⚽ משחקי {activeRound.round.name}</h2>
+            <span className="text-xs text-ink-dim">
+              {activeRound.round.finishedCount}/{activeRound.round.fixtureCount} שוחקו
+            </span>
+          </div>
+          <div className="mt-3">
+            <RoundFixtures fixtures={activeRound.fixtures} />
           </div>
         </Card>
       )}
