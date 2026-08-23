@@ -59,16 +59,23 @@ a small VPS, Railway/Fly.io with a volume, etc. Full guide: see `docs/DEPLOY.md`
 
 Backup = copy the `data/` folder (or download from the admin panel).
 
-## דמו ב-Vercel / Vercel demo mode
+## הרצה ב-Vercel / Running on Vercel
 
-אפשר לייבא את הריפו ל-Vercel והוא יעלה **כדמו** בלי שום הגדרה נוספת
-(`vercel.json` + `api/index.ts` דואגים לזה). חשוב לדעת:
+אפשר לייבא את הריפו ל-Vercel והוא יעלה בלי שום הגדרה נוספת
+(`vercel.json` + `api/index.ts` דואגים לזה). הליגה נפתחת **ריקה**: אין משתמשי
+דמו, אין משחקים ואין ניחושים — כולם נרשמים בעצמם ובוחרים סיסמה.
 
-- מסד הנתונים זמני (`/tmp`) — **הנתונים מתאפסים** בכל deploy ומדי פעם (cold start).
-- תזכורות Push לא נשלחות (אין תהליך קבוע ב-serverless).
-- נתוני דמו נטענים אוטומטית: `dror` / `demo123` (אדמין), `avi` / `demo123`,
-  `yossi` / `demo123`. קוד הזמנה להרשמה: `DEMO` (או `INVITE_CODE` אם הוגדר).
+- קוד ההזמנה להרשמה: `DEMO` (או הערך של `INVITE_CODE` אם הוגדר).
+- **הנרשם הראשון הופך אוטומטית לאדמין** ומזין קבוצות, משחקים ותוצאות
+  מפאנל הניהול (🛠️ בפרופיל).
+- רשימת הקבוצות מגיעה מהרכב 2025/26 — האדמין עורך אותה לפי המציאות.
 
-Importing the repo into Vercel deploys a self-contained **demo**: ephemeral
-SQLite in `/tmp` (data resets on cold starts/deploys), no push reminders.
-For a real league with persistent data, deploy per `docs/DEPLOY.md`.
+⚠️ **מגבלה חשובה ב-Vercel:** מסד הנתונים יושב ב-`/tmp`, ולכן **כל ההרשמות
+והניחושים נמחקים** בכל deploy ומדי פעם (cold start), וגם תזכורות ה-Push לא
+נשלחות. לליגה אמיתית שנשמרת לאורך זמן — פרסו לפי `docs/DEPLOY.md`
+(שרת עם דיסק קבוע; אותו קוד בדיוק, בלי שינויים).
+
+On Vercel the league starts empty — everyone registers with the invite code
+and picks their own password, and the first registrant becomes the admin.
+Data lives in ephemeral `/tmp`, so it is wiped on cold starts and deploys;
+for a league that persists, deploy per `docs/DEPLOY.md`.
