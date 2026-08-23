@@ -15,8 +15,6 @@ export const config = {
   /** Overrides the seeded invite code check is always against the DB; this seeds it. */
   inviteCode: process.env.INVITE_CODE,
   cookieSecure: process.env.COOKIE_SECURE === '1' || onVercel,
-  /** Demo mode: visitors are auto-signed-in as the demo admin — no login screen. */
-  demoAutoLogin: process.env.DEMO_AUTO_LOGIN === '1' || onVercel,
   /** Enables /api/dev time-travel endpoints. Never set in production. */
   devTools: process.env.DEV_TOOLS === '1',
   isTest: process.env.NODE_ENV === 'test',
