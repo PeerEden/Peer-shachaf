@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 import { Router } from 'express';
 import type { AppDeps } from '../app.js';
 import { requireAuth } from '../auth/middleware.js';
@@ -55,7 +55,12 @@ export function standingsRoutes(deps: AppDeps): Router {
     const open = getOpenRound(db, season.id);
     let activeRound = null;
     if (open) {
-      const roundFixtures = db.select().from(fixtures).where(eq(fixtures.roundId, open.id)).all();
+      const roundFixtures = db
+        .select()
+        .from(fixtures)
+        .where(eq(fixtures.roundId, open.id))
+        .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id))
+        .all();
       const relevant = predictableFixturesOfRound(roundFixtures);
       const myPredictions = relevant.length
         ? db
@@ -74,6 +79,9 @@ export function standingsRoutes(deps: AppDeps): Router {
         myFilled: myPredictions.length,
         total: relevant.length,
         completionStatus: getCompletionStatus(db, roundFixtures),
+        // Scores are public the moment they happen (only predictions are
+        // private), so Home can always show the round's games and results.
+        fixtures: roundFixtures.map((f) => toFixtureDto(f, teamsMap)),
       };
     }
 

@@ -8,7 +8,7 @@ import {
   roundCreateSchema,
   teamSchema,
 } from '../../../shared/src/index.js';
-import { desc, eq } from 'drizzle-orm';
+import { asc, desc, eq, inArray } from 'drizzle-orm';
 import { Router, type Request } from 'express';
 import { z } from 'zod';
 import type { AppDeps } from '../app.js';
@@ -32,8 +32,9 @@ import { enterFinalResult, updateLiveScore } from '../engine/scoring-engine.js';
 import { openNextRound } from '../engine/round-lifecycle.js';
 import { archiveSeason, startSeason } from '../engine/season.js';
 import { audit, type Actor } from '../lib/audit.js';
-import { toUserPrivate } from '../lib/dto.js';
+import { toUserPrivate, toUserPublic } from '../lib/dto.js';
 import { badRequest, notFound } from '../lib/http-error.js';
+import { getTeamsMap, toFixtureDto, toRoundDto } from '../services/round-view.js';
 
 function actorOf(req: Request): Actor {
   return { id: req.user!.id, name: req.user!.displayName };
@@ -212,6 +213,42 @@ export function adminRoutes(deps: AppDeps): Router {
   router.post('/fixtures/:id/cancel', (req, res) => {
     cancelFixture(ctx, idParam(req.params.id), actorOf(req));
     res.json({ ok: true });
+  });
+
+  /**
+   * Everything needed to fill in predictions by hand for one round: its
+   * fixtures (with the real result so far), every player, and every existing
+   * prediction. Admin-only, so unlike the player-facing round view this is
+   * deliberately NOT filtered by the round-lock privacy rule.
+   */
+  router.get('/rounds/:id/predictions', (req, res) => {
+    const roundId = idParam(req.params.id);
+    const round = db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+    if (!round) throw notFound('המחזור לא נמצא');
+
+    const roundFixtures = db
+      .select()
+      .from(fixtures)
+      .where(eq(fixtures.roundId, roundId))
+      .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id))
+      .all();
+    const fixtureIds = roundFixtures.map((f) => f.id);
+    const rows = fixtureIds.length
+      ? db.select().from(predictions).where(inArray(predictions.fixtureId, fixtureIds)).all()
+      : [];
+    const teamsMap = getTeamsMap(db);
+
+    res.json({
+      round: toRoundDto(round, roundFixtures, deps.clock.now()),
+      fixtures: roundFixtures.map((f) => toFixtureDto(f, teamsMap)),
+      users: db.select().from(users).all().map(toUserPublic),
+      predictions: rows.map((p) => ({
+        userId: p.userId,
+        fixtureId: p.fixtureId,
+        homePred: p.homePred,
+        awayPred: p.awayPred,
+      })),
+    });
   });
 
   // ---- Exceptional prediction fix ----

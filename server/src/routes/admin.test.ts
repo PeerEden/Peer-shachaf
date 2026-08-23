@@ -183,6 +183,83 @@ describe('admin routes', () => {
     expect(goodReg.res.status).toBe(201);
   });
 
+  it('backfills a prediction for a round that was already played', async () => {
+    const fixtureId = (
+      await admin.post('/api/admin/fixtures').send({
+        roundId: round1Id,
+        homeTeamId: teamIds[0],
+        awayTeamId: teamIds[1],
+        kickoffAt: T0.getTime() + DAY,
+      })
+    ).body.fixture.id;
+
+    // The game is played and finished without anyone having predicted it.
+    ctx.clock.set(new Date(T0.getTime() + DAY + 2 * 60 * 60 * 1000));
+    await admin.post(`/api/admin/fixtures/${fixtureId}/result`).send({ homeScore: 2, awayScore: 1 });
+
+    const view = await admin.get(`/api/admin/rounds/${round1Id}/predictions`);
+    expect(view.status).toBe(200);
+    expect(view.body.fixtures).toHaveLength(1);
+    expect(view.body.fixtures[0]).toMatchObject({ status: 'finished', homeScore: 2, awayScore: 1 });
+    expect(view.body.users).toHaveLength(2);
+    expect(view.body.predictions).toEqual([]);
+
+    const saved = await admin
+      .put('/api/admin/predictions')
+      .send({ userId: aviId, fixtureId, homePred: 2, awayPred: 1 });
+    expect(saved.status).toBe(200);
+
+    const after = await admin.get(`/api/admin/rounds/${round1Id}/predictions`);
+    expect(after.body.predictions).toEqual([
+      { userId: aviId, fixtureId, homePred: 2, awayPred: 1 },
+    ]);
+
+    // An exact hit entered after the fact still scores.
+    const standings = await admin.get('/api/standings');
+    const aviRow = standings.body.standings.find(
+      (s: { user: { id: number } }) => s.user.id === aviId,
+    );
+    expect(aviRow.totalPoints).toBe(3);
+  });
+
+  it('rejects non-admins on the round predictions view', async () => {
+    const res = await user.get(`/api/admin/rounds/${round1Id}/predictions`);
+    expect(res.status).toBe(403);
+  });
+
+  it('shows the current round fixtures and their real results on Home', async () => {
+    const played = (
+      await admin.post('/api/admin/fixtures').send({
+        roundId: round1Id,
+        homeTeamId: teamIds[0],
+        awayTeamId: teamIds[1],
+        kickoffAt: T0.getTime() + DAY,
+      })
+    ).body.fixture.id;
+    await admin.post('/api/admin/fixtures').send({
+      roundId: round1Id,
+      homeTeamId: teamIds[2],
+      awayTeamId: teamIds[3],
+      kickoffAt: T0.getTime() + 2 * DAY,
+    });
+
+    // First game done, second still ahead — the round stays open.
+    ctx.clock.set(new Date(T0.getTime() + DAY + 2 * 60 * 60 * 1000));
+    await admin.post(`/api/admin/fixtures/${played}/result`).send({ homeScore: 3, awayScore: 0 });
+
+    const home = await user.get('/api/home');
+    expect(home.status).toBe(200);
+    expect(home.body.activeRound.fixtures).toHaveLength(2);
+    expect(home.body.activeRound.fixtures[0]).toMatchObject({
+      id: played,
+      status: 'finished',
+      homeScore: 3,
+      awayScore: 0,
+    });
+    expect(home.body.activeRound.fixtures[1]).toMatchObject({ status: 'scheduled', homeScore: null });
+    expect(home.body.activeRound.round.finishedCount).toBe(1);
+  });
+
   it('downloads a DB backup', async () => {
     const res = await admin.get('/api/admin/backup').buffer(true);
     expect(res.status).toBe(200);
