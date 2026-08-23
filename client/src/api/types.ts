@@ -44,6 +44,7 @@ export interface HomeResponse {
     myFilled: number;
     total: number;
     completionStatus: CompletionStatusEntry[];
+    fixtures: FixtureDto[];
   } | null;
   liveNow: boolean;
   lastClosedRound: { id: number; name: string; winners: UserPublic[] } | null;
@@ -129,6 +130,14 @@ export interface AdminUsersResponse {
 
 export interface AuditResponse {
   entries: AuditEntryDto[];
+}
+
+/** Admin view of one round: unfiltered, so past predictions can be filled in. */
+export interface AdminRoundPredictionsResponse {
+  round: RoundDto;
+  fixtures: FixtureDto[];
+  users: UserPublic[];
+  predictions: Array<{ userId: number; fixtureId: number; homePred: number; awayPred: number }>;
 }
 
 export interface VapidKeyResponse {

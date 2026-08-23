@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { TeamDto } from '@league/shared';
 import { api } from './client';
-import type { AdminUsersResponse, AuditResponse } from './types';
+import type { AdminRoundPredictionsResponse, AdminUsersResponse, AuditResponse } from './types';
 
 export function useAdminUsers() {
   return useQuery({
@@ -14,6 +14,15 @@ export function useAdminTeams() {
   return useQuery({
     queryKey: ['admin', 'teams'],
     queryFn: () => api<{ teams: TeamDto[] }>('/api/admin/teams'),
+  });
+}
+
+export function useAdminRoundPredictions(roundId: number | null) {
+  return useQuery({
+    queryKey: ['admin', 'round-predictions', roundId],
+    queryFn: () =>
+      api<AdminRoundPredictionsResponse>(`/api/admin/rounds/${roundId}/predictions`),
+    enabled: roundId !== null,
   });
 }
 
