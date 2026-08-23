@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import request from 'supertest';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { users } from '../db/schema.js';
+import { sessions, users } from '../db/schema.js';
 import { createTestApp, registerAgent, TEST_INVITE, type TestContext } from '../test/helpers.js';
 
 describe('auth', () => {
@@ -26,6 +26,21 @@ describe('auth', () => {
 
     const joiner = await registerAgent(ctx, 'avi', { phone: '0522222222' });
     expect(joiner.res.body.user.role).toBe('USER');
+  });
+
+  it('logs out even when the session is no longer known to the server', async () => {
+    const { agent } = await registerAgent(ctx, 'dror');
+
+    // The session vanishes underneath the user: expired, purged, or served by
+    // an instance that never had it. Logging out must still work.
+    ctx.db.delete(sessions).run();
+
+    const res = await agent.post('/api/auth/logout');
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ ok: true });
+
+    const meAfter = await agent.get('/api/auth/me');
+    expect(meAfter.body.user).toBeNull();
   });
 
   it('rejects a wrong invite code', async () => {
