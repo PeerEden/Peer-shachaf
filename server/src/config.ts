@@ -15,6 +15,12 @@ export const config = {
   /** Overrides the seeded invite code check is always against the DB; this seeds it. */
   inviteCode: process.env.INVITE_CODE,
   cookieSecure: process.env.COOKIE_SECURE === '1' || onVercel,
+  /**
+   * True where the database lives on throwaway storage (serverless /tmp):
+   * accounts and predictions do NOT survive. The UI warns people before they
+   * build a league on it. A host with a persistent disk leaves this false.
+   */
+  ephemeralStorage: onVercel && !process.env.DATA_DIR,
   /** Enables /api/dev time-travel endpoints. Never set in production. */
   devTools: process.env.DEV_TOOLS === '1',
   isTest: process.env.NODE_ENV === 'test',
