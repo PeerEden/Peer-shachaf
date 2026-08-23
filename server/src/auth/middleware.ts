@@ -1,6 +1,8 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express';
+import { eq } from 'drizzle-orm';
 import { config } from '../config.js';
 import type { Db } from '../db/index.js';
+import { users } from '../db/schema.js';
 import type { Clock } from '../lib/clock.js';
 import { forbidden, unauthorized } from '../lib/http-error.js';
 import { resolveSession, type SessionInfo } from './service.js';
@@ -31,6 +33,11 @@ export function attachUser(db: Db, clock: Clock): RequestHandler {
         req.user = resolved.user;
         req.sessionRowId = resolved.sessionRowId;
       }
+    }
+    if (!req.user && config.demoAutoLogin) {
+      // Demo mode: sessions don't survive serverless instances anyway, so every
+      // visitor is simply the seeded demo admin — no login screen at all.
+      req.user = db.select().from(users).where(eq(users.username, 'dror')).get();
     }
     next();
   };
