@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useRegister } from '../api/hooks';
 import { Button, Card, ErrorNote, TextInput } from '../components/ui';
+import { EphemeralNotice } from '../components/EphemeralNotice';
 
 export default function Register() {
   const register = useRegister();
@@ -23,6 +24,8 @@ export default function Register() {
         <h1 className="font-display mt-3 text-3xl font-extrabold text-grass-300">הצטרפות לליגה</h1>
         <p className="mt-1 text-sm text-ink-dim">צריך את קוד הכניסה מהחברים</p>
       </div>
+
+      <EphemeralNotice />
 
       <Card>
         <form

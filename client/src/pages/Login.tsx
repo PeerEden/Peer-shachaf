@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { useLogin } from '../api/hooks';
 import { Button, Card, ErrorNote, TextInput } from '../components/ui';
+import { EphemeralNotice } from '../components/EphemeralNotice';
 
 export default function Login() {
   const login = useLogin();
@@ -15,6 +16,8 @@ export default function Login() {
         <h1 className="font-display mt-3 text-4xl font-extrabold text-grass-300">0 מושג בכדורגל</h1>
         <p className="mt-1 text-ink-dim">ליגת הניחושים של החברים</p>
       </div>
+
+      <EphemeralNotice />
 
       <Card>
         <form
