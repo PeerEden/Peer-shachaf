@@ -5,6 +5,7 @@ import AdminAudit from './pages/admin/AdminAudit';
 import AdminFixtures from './pages/admin/AdminFixtures';
 import AdminHome from './pages/admin/AdminHome';
 import AdminLayout from './pages/admin/AdminLayout';
+import AdminPredictions from './pages/admin/AdminPredictions';
 import AdminTeams from './pages/admin/AdminTeams';
 import AdminUsers from './pages/admin/AdminUsers';
 import History from './pages/History';
@@ -59,6 +60,7 @@ export default function App() {
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminHome />} />
           <Route path="fixtures" element={<AdminFixtures />} />
+          <Route path="predictions" element={<AdminPredictions />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="teams" element={<AdminTeams />} />
           <Route path="audit" element={<AdminAudit />} />
