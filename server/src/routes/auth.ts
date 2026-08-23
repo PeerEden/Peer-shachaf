@@ -1,11 +1,8 @@
 import { loginSchema, registerSchema } from '../../../shared/src/index.js';
 import { Router } from 'express';
 import type { AppDeps } from '../app.js';
-import {
-  clearSessionCookie,
-  requireAuth,
-  setSessionCookie,
-} from '../auth/middleware.js';
+import { config } from '../config.js';
+import { clearSessionCookie, setSessionCookie } from '../auth/middleware.js';
 import { destroySession, loginUser, registerUser } from '../auth/service.js';
 import { toUserPrivate } from '../lib/dto.js';
 import { rateLimit } from '../lib/rate-limit.js';
@@ -35,14 +32,23 @@ export function authRoutes(deps: AppDeps): Router {
     res.json({ user: toUserPrivate(user) });
   });
 
-  router.post('/logout', requireAuth, (req, res) => {
+  /**
+   * Idempotent by design: logging out must always drop the cookie, even when
+   * the session can no longer be resolved (already expired, already deleted,
+   * or simply unknown to the instance handling this request). Failing here
+   * would strand the user inside an account they asked to leave.
+   */
+  router.post('/logout', (req, res) => {
     if (req.sessionRowId !== undefined) destroySession(db, req.sessionRowId);
     clearSessionCookie(res);
     res.json({ ok: true });
   });
 
   router.get('/me', (req, res) => {
-    res.json({ user: req.user ? toUserPrivate(req.user) : null });
+    res.json({
+      user: req.user ? toUserPrivate(req.user) : null,
+      ephemeralStorage: config.ephemeralStorage,
+    });
   });
 
   return router;
