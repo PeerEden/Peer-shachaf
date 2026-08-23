@@ -4,6 +4,7 @@ import type { UserPrivate } from '@league/shared';
 const TABS = [
   { to: '/admin', label: 'כללי', end: true },
   { to: '/admin/fixtures', label: 'משחקים', end: false },
+  { to: '/admin/predictions', label: 'ניחושים', end: false },
   { to: '/admin/users', label: 'משתמשים', end: false },
   { to: '/admin/teams', label: 'קבוצות', end: false },
   { to: '/admin/audit', label: 'יומן', end: false },
