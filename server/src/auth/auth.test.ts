@@ -15,10 +15,17 @@ describe('auth', () => {
     const { agent, res } = await registerAgent(ctx, 'dror');
     expect(res.status).toBe(201);
     expect(res.body.user.username).toBe('dror');
-    expect(res.body.user.role).toBe('USER');
 
     const me = await agent.get('/api/auth/me');
     expect(me.body.user.username).toBe('dror');
+  });
+
+  it('makes the founder an admin and everyone after them a plain user', async () => {
+    const founder = await registerAgent(ctx, 'dror');
+    expect(founder.res.body.user.role).toBe('ADMIN');
+
+    const joiner = await registerAgent(ctx, 'avi', { phone: '0522222222' });
+    expect(joiner.res.body.user.role).toBe('USER');
   });
 
   it('rejects a wrong invite code', async () => {

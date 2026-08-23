@@ -43,6 +43,11 @@ export function registerUser(
     throw conflict('PHONE_TAKEN', 'מספר הטלפון כבר רשום במערכת');
   }
 
+  // The founder of a fresh league becomes its admin: on hosts where the CLI
+  // (`npm run promote-admin`) isn't reachable there would otherwise be nobody
+  // able to enter teams, fixtures and results.
+  const isFirstUser = db.select().from(users).all().length === 0;
+
   const user = db
     .insert(users)
     .values({
@@ -50,6 +55,7 @@ export function registerUser(
       passwordHash: bcrypt.hashSync(input.password, BCRYPT_COST),
       displayName: input.displayName,
       phone: input.phone,
+      role: isFirstUser ? 'ADMIN' : 'USER',
       createdAt: clock.now(),
     })
     .returning()
