@@ -1,18 +1,18 @@
 /**
- * Vercel serverless entry — DEMO mode.
+ * Vercel serverless entry.
  *
- * Wraps the exact same Express app the normal deployment runs (server/src),
- * but serverless has no persistent disk and no long-lived process, so:
- *  - SQLite lives in /tmp and RESETS on cold starts and on every deploy
- *    (config.ts picks the /tmp path when VERCEL is set).
+ * Wraps the exact same Express app the normal deployment runs (server/src).
+ * Only the BASE seed runs here (league settings + invite code, season, teams,
+ * empty rounds) — no demo users, fixtures or predictions: real people register
+ * themselves and the admin enters the real games.
+ *
+ * Serverless caveats (see docs/DEPLOY.md for a persistent deployment):
+ *  - SQLite lives in /tmp, so data does NOT survive cold starts or deploys.
  *  - The reminder scheduler does not run — no push reminders.
- * Base + demo data are seeded on cold start so every screen has content.
- * For a real deployment (persistent data, reminders) follow docs/DEPLOY.md.
  */
 import { buildApp } from '../server/src/app.js';
 import { config, dataPath } from '../server/src/config.js';
 import { createDb } from '../server/src/db/index.js';
-import { seedDemo } from '../server/src/db/seed-demo.js';
 import { seedBase } from '../server/src/db/seed.js';
 import { SystemClock } from '../server/src/lib/clock.js';
 import { buildPushEvents } from '../server/src/push/events.js';
@@ -22,7 +22,6 @@ import { configureWebPush, ensureVapidKeys } from '../server/src/push/vapid.js';
 export function bootstrap() {
   const db = createDb(dataPath('league.db'));
   seedBase(db, { inviteCode: config.inviteCode ?? 'DEMO' });
-  seedDemo(db);
 
   const clock = new SystemClock();
   const vapidKeys = ensureVapidKeys(config.dataDir);
