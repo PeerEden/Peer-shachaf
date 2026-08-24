@@ -34,40 +34,38 @@ export function profileRoutes(deps: AppDeps): Router {
 
   router.use(requireAuth);
 
-  router.patch('/', (req, res) => {
+  router.patch('/', async (req, res) => {
     const user = req.user!;
     const input = updateProfileSchema.parse(req.body);
 
     if (input.phone && input.phone !== user.phone) {
-      const clash = db
+      const [clash] = await db
         .select()
         .from(users)
-        .where(and(eq(users.phone, input.phone), ne(users.id, user.id)))
-        .get();
+        .where(and(eq(users.phone, input.phone), ne(users.id, user.id)));
       if (clash) throw conflict('PHONE_TAKEN', 'מספר הטלפון כבר רשום במערכת');
     }
 
-    const updated = db
+    const [updated] = await db
       .update(users)
       .set({
         ...(input.displayName !== undefined ? { displayName: input.displayName } : {}),
         ...(input.phone !== undefined ? { phone: input.phone } : {}),
       })
       .where(eq(users.id, user.id))
-      .returning()
-      .get();
-    res.json({ user: toUserPrivate(updated) });
+      .returning();
+    res.json({ user: toUserPrivate(updated!) });
   });
 
-  router.post('/password', (req, res) => {
+  router.post('/password', async (req, res) => {
     const user = req.user!;
     const input = changePasswordSchema.parse(req.body);
-    changePassword(db, user, input.currentPassword, input.newPassword);
-    destroyOtherSessions(db, user.id, req.sessionRowId);
+    await changePassword(db, user, input.currentPassword, input.newPassword);
+    await destroyOtherSessions(db, user.id, req.sessionRowId);
     res.json({ ok: true });
   });
 
-  router.post('/avatar', upload.single('avatar'), (req, res) => {
+  router.post('/avatar', upload.single('avatar'), async (req, res) => {
     const user = req.user!;
     if (!req.file) throw badRequest('BAD_AVATAR', 'קובץ תמונה לא תקין (עד 5MB, JPG/PNG/WebP)');
 
@@ -81,13 +79,12 @@ export function profileRoutes(deps: AppDeps): Router {
       fs.rmSync(path.join(uploadsDir, user.avatarPath), { force: true });
     }
 
-    const updated = db
+    const [updated] = await db
       .update(users)
       .set({ avatarPath: filename })
       .where(eq(users.id, user.id))
-      .returning()
-      .get();
-    res.json({ user: toUserPrivate(updated) });
+      .returning();
+    res.json({ user: toUserPrivate(updated!) });
   });
 
   return router;

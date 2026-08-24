@@ -22,37 +22,35 @@ export function liveRoutes(deps: AppDeps): Router {
    * provisional points, plus the "if the games ended now" table. Nothing here
    * is ever persisted — provisional points are computed on the fly.
    */
-  router.get('/live', (_req, res) => {
-    const season = getActiveSeason(ctx);
+  router.get('/live', async (_req, res) => {
+    const season = await getActiveSeason(ctx);
     if (!season) {
       res.json({ fixtures: [], table: [], hasLive: false });
       return;
     }
 
-    const liveFixtures = db
+    const liveFixtures = await db
       .select()
       .from(fixtures)
-      .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.status, 'live')))
-      .all();
-    const teamsMap = getTeamsMap(db);
-    const usersMap = getUsersMap(db);
+      .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.status, 'live')));
+    const teamsMap = await getTeamsMap(db);
+    const usersMap = await getUsersMap(db);
 
     const livePredictions = liveFixtures.length
-      ? db
+      ? await db
           .select()
           .from(predictions)
           .where(inArray(predictions.fixtureId, liveFixtures.map((f) => f.id)))
-          .all()
       : [];
 
     const roundsById = new Map(
       liveFixtures.length
-        ? db
-            .select()
-            .from(rounds)
-            .where(inArray(rounds.id, [...new Set(liveFixtures.map((f) => f.roundId))]))
-            .all()
-            .map((r) => [r.id, r])
+        ? (
+            await db
+              .select()
+              .from(rounds)
+              .where(inArray(rounds.id, [...new Set(liveFixtures.map((f) => f.roundId))]))
+          ).map((r) => [r.id, r])
         : [],
     );
     const now = deps.clock.now();
@@ -90,7 +88,7 @@ export function liveRoutes(deps: AppDeps): Router {
       return { ...toFixtureDto(fixture, teamsMap), predictions: rows };
     });
 
-    const banked = computeSeasonTotals(db, season.id);
+    const banked = await computeSeasonTotals(db, season.id);
     const merged = banked.map((entry) => ({
       userId: entry.userId,
       bankedPoints: entry.points,

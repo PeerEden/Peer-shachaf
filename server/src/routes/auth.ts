@@ -12,16 +12,16 @@ export function authRoutes(deps: AppDeps): Router {
   const { db, clock } = deps;
   const authLimiter = rateLimit(clock, { max: 20, windowMs: 15 * 60 * 1000 });
 
-  router.post('/register', authLimiter, (req, res) => {
+  router.post('/register', authLimiter, async (req, res) => {
     const input = registerSchema.parse(req.body);
-    const { user, session } = registerUser(db, clock, input, req.get('user-agent') ?? null);
+    const { user, session } = await registerUser(db, clock, input, req.get('user-agent') ?? null);
     setSessionCookie(res, session);
     res.status(201).json({ user: toUserPrivate(user) });
   });
 
-  router.post('/login', authLimiter, (req, res) => {
+  router.post('/login', authLimiter, async (req, res) => {
     const input = loginSchema.parse(req.body);
-    const { user, session } = loginUser(
+    const { user, session } = await loginUser(
       db,
       clock,
       input.username,
@@ -38,8 +38,8 @@ export function authRoutes(deps: AppDeps): Router {
    * or simply unknown to the instance handling this request). Failing here
    * would strand the user inside an account they asked to leave.
    */
-  router.post('/logout', (req, res) => {
-    if (req.sessionRowId !== undefined) destroySession(db, req.sessionRowId);
+  router.post('/logout', async (req, res) => {
+    if (req.sessionRowId !== undefined) await destroySession(db, req.sessionRowId);
     clearSessionCookie(res);
     res.json({ ok: true });
   });

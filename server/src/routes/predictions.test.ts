@@ -19,22 +19,26 @@ describe('predictions & privacy', () => {
   let round1Id: number;
 
   beforeEach(async () => {
-    ctx = createTestApp();
+    ctx = await createTestApp();
     dror = (await registerAgent(ctx, 'dror')).agent;
     avi = (await registerAgent(ctx, 'avi')).agent;
 
-    const teamIds = ctx.db.select().from(teams).orderBy(asc(teams.id)).all().map((t) => t.id);
-    const round1 = ctx.db.select().from(rounds).all().find((r) => r.number === 1)!;
+    const teamIds = (await ctx.db.select().from(teams).orderBy(asc(teams.id))).map((t) => t.id);
+    const round1 = (await ctx.db.select().from(rounds)).find((r) => r.number === 1)!;
     round1Id = round1.id;
-    f1Id = createFixture(
-      ctx,
-      { roundId: round1Id, homeTeamId: teamIds[0]!, awayTeamId: teamIds[1]!, kickoffAt: T0.getTime() + DAY },
-      SYSTEM_ACTOR,
+    f1Id = (
+      await createFixture(
+        ctx,
+        { roundId: round1Id, homeTeamId: teamIds[0]!, awayTeamId: teamIds[1]!, kickoffAt: T0.getTime() + DAY },
+        SYSTEM_ACTOR,
+      )
     ).id;
-    f2Id = createFixture(
-      ctx,
-      { roundId: round1Id, homeTeamId: teamIds[2]!, awayTeamId: teamIds[3]!, kickoffAt: T0.getTime() + DAY + 2 * HOUR },
-      SYSTEM_ACTOR,
+    f2Id = (
+      await createFixture(
+        ctx,
+        { roundId: round1Id, homeTeamId: teamIds[2]!, awayTeamId: teamIds[3]!, kickoffAt: T0.getTime() + DAY + 2 * HOUR },
+        SYSTEM_ACTOR,
+      )
     ).id;
   });
 
@@ -116,14 +120,14 @@ describe('predictions & privacy', () => {
   it('enforces the completion-game window and privacy', async () => {
     // Simulate a rescheduled completion game: reopens 7d before its new kickoff
     const newKickoff = T0.getTime() + 20 * DAY;
-    ctx.db
+    await ctx.db
       .update(fixtures)
       .set({
         isCompletion: true,
         predictionOpenAt: new Date(newKickoff - 7 * DAY),
         kickoffAt: new Date(newKickoff),
       })
-      .where(eq(fixtures.id, f2Id)).run();
+      .where(eq(fixtures.id, f2Id));
 
     // Too early — window not open yet
     const early = await dror.put(`/api/predictions/${f2Id}`).send({ homePred: 1, awayPred: 0 });
@@ -155,9 +159,9 @@ describe('predictions & privacy', () => {
     expect(homeBefore.body.leagueName).toBe('0 מושג בכדורגל');
 
     ctx.clock.set(new Date(T0.getTime() + DAY + 3 * HOUR));
-    enterFinalResult(ctx, f1Id, { homeScore: 2, awayScore: 1 }, SYSTEM_ACTOR);
-    ctx.db.update(fixtures).set({ status: 'cancelled' }).where(eq(fixtures.id, f2Id)).run();
-    enterFinalResult(ctx, f1Id, { homeScore: 2, awayScore: 1 }, SYSTEM_ACTOR); // re-enter triggers close
+    await enterFinalResult(ctx, f1Id, { homeScore: 2, awayScore: 1 }, SYSTEM_ACTOR);
+    await ctx.db.update(fixtures).set({ status: 'cancelled' }).where(eq(fixtures.id, f2Id));
+    await enterFinalResult(ctx, f1Id, { homeScore: 2, awayScore: 1 }, SYSTEM_ACTOR); // re-enter triggers close
 
     const standings = await dror.get('/api/standings');
     const entries = standings.body.standings as Array<{

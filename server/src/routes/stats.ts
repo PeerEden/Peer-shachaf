@@ -17,12 +17,12 @@ export function statsRoutes(deps: AppDeps): Router {
   router.use(requireAuth);
 
   /** The personal stats page: totals, success rate, streaks, best/worst round. */
-  router.get('/users/:id/stats', (req, res) => {
+  router.get('/users/:id/stats', async (req, res) => {
     const userId = Number(req.params.id);
-    const user = db.select().from(users).where(eq(users.id, userId)).get();
+    const [user] = await db.select().from(users).where(eq(users.id, userId));
     if (!user) throw notFound('המשתמש לא נמצא');
 
-    const season = getActiveSeason(ctx);
+    const season = await getActiveSeason(ctx);
     if (!season) {
       res.json({
         user: toUserPublic(user),
@@ -34,23 +34,23 @@ export function statsRoutes(deps: AppDeps): Router {
       return;
     }
 
-    const totals = computeSeasonTotals(db, season.id).find((t) => t.userId === userId);
-    const titles = computeCurrentTitles(db, season.id).get(userId) ?? [];
-    const streaks = computeStreaks(db, season.id).get(userId) ?? { current: 0, longest: 0 };
+    const totals = (await computeSeasonTotals(db, season.id)).find((t) => t.userId === userId);
+    const titles = (await computeCurrentTitles(db, season.id)).get(userId) ?? [];
+    const streaks = (await computeStreaks(db, season.id)).get(userId) ?? { current: 0, longest: 0 };
 
-    const predictionsCount = db
-      .select({ id: predictions.id })
-      .from(predictions)
-      .innerJoin(fixtures, eq(predictions.fixtureId, fixtures.id))
-      .where(and(eq(predictions.userId, userId), eq(fixtures.seasonId, season.id)))
-      .all().length;
+    const predictionsCount = (
+      await db
+        .select({ id: predictions.id })
+        .from(predictions)
+        .innerJoin(fixtures, eq(predictions.fixtureId, fixtures.id))
+        .where(and(eq(predictions.userId, userId), eq(fixtures.seasonId, season.id)))
+    ).length;
 
-    const statRows = db
+    const statRows = await db
       .select({ stat: roundUserStats, round: rounds })
       .from(roundUserStats)
       .innerJoin(rounds, eq(roundUserStats.roundId, rounds.id))
-      .where(and(eq(roundUserStats.userId, userId), eq(rounds.seasonId, season.id)))
-      .all();
+      .where(and(eq(roundUserStats.userId, userId), eq(rounds.seasonId, season.id)));
     const roundWins = statRows.filter((r) => r.stat.isRoundWinner).length;
     let bestRound: { roundId: number; roundName: string; points: number } | null = null;
     let worstRound: { roundId: number; roundName: string; points: number } | null = null;

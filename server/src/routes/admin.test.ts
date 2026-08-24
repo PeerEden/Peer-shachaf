@@ -15,14 +15,14 @@ describe('admin routes', () => {
   let round1Id: number;
 
   beforeEach(async () => {
-    ctx = createTestApp();
+    ctx = await createTestApp();
     admin = (await registerAgent(ctx, 'dror')).agent;
     const aviReg = await registerAgent(ctx, 'avi');
     user = aviReg.agent;
     aviId = aviReg.res.body.user.id;
-    ctx.db.update(users).set({ role: 'ADMIN' }).where(eq(users.username, 'dror')).run();
-    teamIds = ctx.db.select().from(teams).orderBy(asc(teams.id)).all().map((t) => t.id);
-    round1Id = ctx.db.select().from(rounds).all().find((r) => r.number === 1)!.id;
+    await ctx.db.update(users).set({ role: 'ADMIN' }).where(eq(users.username, 'dror'));
+    teamIds = (await ctx.db.select().from(teams).orderBy(asc(teams.id))).map((t) => t.id);
+    round1Id = (await ctx.db.select().from(rounds)).find((r) => r.number === 1)!.id;
   });
 
   it('rejects non-admins on every admin endpoint', async () => {
@@ -56,11 +56,11 @@ describe('admin routes', () => {
 
     const promote = await admin.post(`/api/admin/users/${aviId}/promote`);
     expect(promote.status).toBe(200);
-    expect(ctx.db.select().from(users).all().find((u) => u.id === aviId)?.role).toBe('ADMIN');
+    expect((await ctx.db.select().from(users)).find((u) => u.id === aviId)?.role).toBe('ADMIN');
 
     const del = await admin.delete(`/api/admin/users/${aviId}`);
     expect(del.status).toBe(200);
-    expect(ctx.db.select().from(users).all()).toHaveLength(1);
+    expect(await ctx.db.select().from(users)).toHaveLength(1);
   });
 
   it('manages teams and protects teams in use', async () => {
@@ -260,9 +260,19 @@ describe('admin routes', () => {
     expect(home.body.activeRound.round.finishedCount).toBe(1);
   });
 
-  it('downloads a DB backup', async () => {
+  it('exports the whole league as a downloadable backup', async () => {
     const res = await admin.get('/api/admin/backup').buffer(true);
     expect(res.status).toBe(200);
-    expect(res.headers['content-disposition']).toContain('league-backup.db');
+    expect(res.headers['content-disposition']).toContain('league-backup.json');
+
+    // The export has to be restorable, so every table travels with it.
+    expect(res.body.users.map((u: { username: string }) => u.username).sort()).toEqual([
+      'avi',
+      'dror',
+    ]);
+    expect(res.body.teams.length).toBeGreaterThan(0);
+    expect(res.body.rounds.length).toBeGreaterThan(0);
+    expect(res.body.leagueSettings[0].inviteCode).toBeTruthy();
+    expect(res.body.exportedAt).toBeTruthy();
   });
 });

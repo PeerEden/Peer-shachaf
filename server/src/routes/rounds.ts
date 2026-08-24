@@ -23,19 +23,18 @@ export function roundsRoutes(deps: AppDeps): Router {
 
   router.use(requireAuth);
 
-  router.get('/rounds', (_req, res) => {
-    const season = getActiveSeason(ctx);
+  router.get('/rounds', async (_req, res) => {
+    const season = await getActiveSeason(ctx);
     if (!season) {
       res.json({ rounds: [] });
       return;
     }
-    const allRounds = db
+    const allRounds = await db
       .select()
       .from(rounds)
       .where(eq(rounds.seasonId, season.id))
-      .orderBy(asc(rounds.number))
-      .all();
-    const allFixtures = db.select().from(fixtures).where(eq(fixtures.seasonId, season.id)).all();
+      .orderBy(asc(rounds.number));
+    const allFixtures = await db.select().from(fixtures).where(eq(fixtures.seasonId, season.id));
     const now = clock.now();
     res.json({
       rounds: allRounds.map((r) =>
@@ -44,31 +43,31 @@ export function roundsRoutes(deps: AppDeps): Router {
     });
   });
 
-  router.get('/rounds/current', (req, res) => {
-    const season = getActiveSeason(ctx);
-    const open = season ? getOpenRound(db, season.id) : null;
+  router.get('/rounds/current', async (req, res) => {
+    const season = await getActiveSeason(ctx);
+    const open = season ? await getOpenRound(db, season.id) : null;
     if (!open) {
       res.json({ round: null });
       return;
     }
-    res.json(getRoundView(ctx, open.id, req.user!));
+    res.json(await getRoundView(ctx, open.id, req.user!));
   });
 
-  router.get('/rounds/:id', (req, res) => {
+  router.get('/rounds/:id', async (req, res) => {
     const roundId = Number(req.params.id);
     if (!Number.isInteger(roundId)) throw notFound();
-    res.json(getRoundView(ctx, roundId, req.user!));
+    res.json(await getRoundView(ctx, roundId, req.user!));
   });
 
-  router.get('/rounds/:id/summary', (req, res) => {
+  router.get('/rounds/:id/summary', async (req, res) => {
     const roundId = Number(req.params.id);
-    const round = db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+    const [round] = await db.select().from(rounds).where(eq(rounds.id, roundId));
     if (!round) throw notFound('המחזור לא נמצא');
     if (round.status !== 'closed') throw badRequest('ROUND_NOT_CLOSED', 'המחזור עוד לא הסתיים');
 
-    const usersMap = getUsersMap(db);
-    const stats = db.select().from(roundUserStats).where(eq(roundUserStats.roundId, roundId)).all();
-    const titles = db.select().from(roundTitles).where(eq(roundTitles.roundId, roundId)).all();
+    const usersMap = await getUsersMap(db);
+    const stats = await db.select().from(roundUserStats).where(eq(roundUserStats.roundId, roundId));
+    const titles = await db.select().from(roundTitles).where(eq(roundTitles.roundId, roundId));
     const titlesByUser = new Map<number, string[]>();
     for (const t of titles) {
       titlesByUser.set(t.userId, [...(titlesByUser.get(t.userId) ?? []), t.titleCode]);
@@ -98,21 +97,21 @@ export function roundsRoutes(deps: AppDeps): Router {
     res.json({
       round: toRoundDto(
         round,
-        db.select().from(fixtures).where(eq(fixtures.roundId, roundId)).all(),
+        await db.select().from(fixtures).where(eq(fixtures.roundId, roundId)),
         clock.now(),
       ),
       entries,
     });
   });
 
-  router.put('/predictions/:fixtureId', (req, res) => {
+  router.put('/predictions/:fixtureId', async (req, res) => {
     const user = req.user!;
     const fixtureId = Number(req.params.fixtureId);
     const input = predictionSchema.parse(req.body);
 
-    const fixture = db.select().from(fixtures).where(eq(fixtures.id, fixtureId)).get();
+    const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
     if (!fixture) throw notFound('המשחק לא נמצא');
-    const round = db.select().from(rounds).where(eq(rounds.id, fixture.roundId)).get();
+    const [round] = await db.select().from(rounds).where(eq(rounds.id, fixture.roundId));
     if (!round) throw notFound('המחזור לא נמצא');
 
     if (!isFixturePredictable(fixture, round, clock.now())) {
@@ -120,7 +119,7 @@ export function roundsRoutes(deps: AppDeps): Router {
     }
 
     const now = clock.now();
-    const saved = db
+    const [saved] = await db
       .insert(predictions)
       .values({
         userId: user.id,
@@ -133,36 +132,35 @@ export function roundsRoutes(deps: AppDeps): Router {
         target: [predictions.userId, predictions.fixtureId],
         set: { homePred: input.homePred, awayPred: input.awayPred, updatedAt: now },
       })
-      .returning()
-      .get();
+      .returning();
 
     res.json({
       prediction: {
-        fixtureId: saved.fixtureId,
-        userId: saved.userId,
-        homePred: saved.homePred,
-        awayPred: saved.awayPred,
-        updatedAt: saved.updatedAt.getTime(),
+        fixtureId: saved!.fixtureId,
+        userId: saved!.userId,
+        homePred: saved!.homePred,
+        awayPred: saved!.awayPred,
+        updatedAt: saved!.updatedAt.getTime(),
       },
     });
   });
 
   /** "סיימתי לנחש" — validates the round is fully filled; returns what's missing. */
-  router.post('/rounds/:id/done', (req, res) => {
+  router.post('/rounds/:id/done', async (req, res) => {
     const user = req.user!;
     const roundId = Number(req.params.id);
-    const round = db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+    const [round] = await db.select().from(rounds).where(eq(rounds.id, roundId));
     if (!round) throw notFound('המחזור לא נמצא');
 
-    const roundFixtures = db.select().from(fixtures).where(eq(fixtures.roundId, roundId)).all();
+    const roundFixtures = await db.select().from(fixtures).where(eq(fixtures.roundId, roundId));
     const relevant = predictableFixturesOfRound(roundFixtures);
     const mine = new Set(
-      db
-        .select()
-        .from(predictions)
-        .where(eq(predictions.userId, user.id))
-        .all()
-        .map((p) => p.fixtureId),
+      (
+        await db
+          .select()
+          .from(predictions)
+          .where(eq(predictions.userId, user.id))
+      ).map((p) => p.fixtureId),
     );
     const missing = relevant.filter((f) => !mine.has(f.id)).map((f) => f.id);
     res.json({ complete: missing.length === 0, missing, total: relevant.length });

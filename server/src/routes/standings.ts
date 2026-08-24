@@ -23,16 +23,16 @@ export function standingsRoutes(deps: AppDeps): Router {
 
   router.use(requireAuth);
 
-  router.get('/standings', (_req, res) => {
-    const season = getActiveSeason(ctx);
-    res.json({ standings: season ? getStandingsView(ctx, season.id) : [] });
+  router.get('/standings', async (_req, res) => {
+    const season = await getActiveSeason(ctx);
+    res.json({ standings: season ? await getStandingsView(ctx, season.id) : [] });
   });
 
   /** One aggregate call for the Home screen. */
-  router.get('/home', (req, res) => {
+  router.get('/home', async (req, res) => {
     const user = req.user!;
-    const season = getActiveSeason(ctx);
-    const settings = db.select().from(leagueSettings).all()[0];
+    const season = await getActiveSeason(ctx);
+    const settings = (await db.select().from(leagueSettings))[0];
     const now = clock.now();
 
     if (!season) {
@@ -49,21 +49,20 @@ export function standingsRoutes(deps: AppDeps): Router {
       return;
     }
 
-    const standings = getStandingsView(ctx, season.id);
-    const teamsMap = getTeamsMap(db);
+    const standings = await getStandingsView(ctx, season.id);
+    const teamsMap = await getTeamsMap(db);
 
-    const open = getOpenRound(db, season.id);
+    const open = await getOpenRound(db, season.id);
     let activeRound = null;
     if (open) {
-      const roundFixtures = db
+      const roundFixtures = await db
         .select()
         .from(fixtures)
         .where(eq(fixtures.roundId, open.id))
-        .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id))
-        .all();
+        .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id));
       const relevant = predictableFixturesOfRound(roundFixtures);
       const myPredictions = relevant.length
-        ? db
+        ? await db
             .select()
             .from(predictions)
             .where(
@@ -72,39 +71,39 @@ export function standingsRoutes(deps: AppDeps): Router {
                 inArray(predictions.fixtureId, relevant.map((f) => f.id)),
               ),
             )
-            .all()
         : [];
       activeRound = {
         round: toRoundDto(open, roundFixtures, now),
         myFilled: myPredictions.length,
         total: relevant.length,
-        completionStatus: getCompletionStatus(db, roundFixtures),
+        completionStatus: await getCompletionStatus(db, roundFixtures),
         // Scores are public the moment they happen (only predictions are
         // private), so Home can always show the round's games and results.
         fixtures: roundFixtures.map((f) => toFixtureDto(f, teamsMap)),
       };
     }
 
-    const liveNow = db
-      .select()
-      .from(fixtures)
-      .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.status, 'live')))
-      .all().length > 0;
+    const liveNow = (
+      await db
+        .select()
+        .from(fixtures)
+        .where(and(eq(fixtures.seasonId, season.id), eq(fixtures.status, 'live')))
+    ).length > 0;
 
-    const lastClosed = db
+    const [lastClosed] = await db
       .select()
       .from(rounds)
       .where(and(eq(rounds.seasonId, season.id), eq(rounds.status, 'closed')))
-      .orderBy(desc(rounds.number))
-      .get();
+      .orderBy(desc(rounds.number));
     let lastClosedRound = null;
     if (lastClosed) {
-      const usersMap = getUsersMap(db);
-      const winners = db
-        .select()
-        .from(roundUserStats)
-        .where(eq(roundUserStats.roundId, lastClosed.id))
-        .all()
+      const usersMap = await getUsersMap(db);
+      const winners = (
+        await db
+          .select()
+          .from(roundUserStats)
+          .where(eq(roundUserStats.roundId, lastClosed.id))
+      )
         .filter((s) => s.isRoundWinner)
         .map((s) => usersMap.get(s.userId))
         .filter((u) => u !== undefined)
@@ -113,7 +112,7 @@ export function standingsRoutes(deps: AppDeps): Router {
     }
 
     // Completion games (משחקי השלמה) that are open or upcoming for prediction
-    const completionRows = db
+    const completionRows = await db
       .select()
       .from(fixtures)
       .where(
@@ -122,21 +121,20 @@ export function standingsRoutes(deps: AppDeps): Router {
           eq(fixtures.isCompletion, true),
           eq(fixtures.status, 'scheduled'),
         ),
-      )
-      .all();
+      );
     const myCompletionPreds = new Map(
       completionRows.length
-        ? db
-            .select()
-            .from(predictions)
-            .where(
-              and(
-                eq(predictions.userId, user.id),
-                inArray(predictions.fixtureId, completionRows.map((f) => f.id)),
-              ),
-            )
-            .all()
-            .map((p) => [p.fixtureId, { homePred: p.homePred, awayPred: p.awayPred }])
+        ? (
+            await db
+              .select()
+              .from(predictions)
+              .where(
+                and(
+                  eq(predictions.userId, user.id),
+                  inArray(predictions.fixtureId, completionRows.map((f) => f.id)),
+                ),
+              )
+          ).map((p) => [p.fixtureId, { homePred: p.homePred, awayPred: p.awayPred }])
         : [],
     );
 

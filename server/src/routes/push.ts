@@ -16,10 +16,10 @@ export function pushRoutes(deps: AppDeps): Router {
     res.json({ publicKey: deps.push?.publicKey ?? null });
   });
 
-  router.post('/push/subscribe', (req, res) => {
+  router.post('/push/subscribe', async (req, res) => {
     const input = pushSubscriptionSchema.parse(req.body);
     const user = req.user!;
-    db.insert(pushSubscriptions)
+    await db.insert(pushSubscriptions)
       .values({
         userId: user.id,
         endpoint: input.endpoint,
@@ -36,16 +36,14 @@ export function pushRoutes(deps: AppDeps): Router {
           userAgent: req.get('user-agent') ?? null,
           failCount: 0,
         },
-      })
-      .run();
+      });
     res.status(201).json({ ok: true });
   });
 
-  router.delete('/push/subscribe', (req, res) => {
+  router.delete('/push/subscribe', async (req, res) => {
     const { endpoint } = z.object({ endpoint: z.string().max(1000) }).parse(req.body);
-    db.delete(pushSubscriptions)
-      .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, req.user!.id)))
-      .run();
+    await db.delete(pushSubscriptions)
+      .where(and(eq(pushSubscriptions.endpoint, endpoint), eq(pushSubscriptions.userId, req.user!.id)));
     res.json({ ok: true });
   });
 
