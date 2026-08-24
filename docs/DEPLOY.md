@@ -1,12 +1,13 @@
 # פריסה לאינטרנט / Deployment Guide
 
-המערכת היא תהליך Node יחיד עם קובץ SQLite — אין תלות בשירותים חיצוניים.
+המערכת היא תהליך Node יחיד מול מסד נתונים Postgres (למשל Supabase).
 כדי שהחברים יתחברו מהאייפון צריך שרת עם **דיסק קבוע** ו‑**HTTPS**.
 
-The app is one long-lived Node process with a SQLite file. It needs a host
-with a **persistent disk** and **HTTPS** (required for PWA installation and
-Web Push). Serverless platforms (Vercel, Netlify, Cloudflare Pages) will
-**not** work — the process must stay alive for the reminder scheduler.
+The app is one long-lived Node process backed by Postgres. It needs **HTTPS**
+(required for PWA installation and Web Push) and a **persistent disk** for
+uploaded avatars and the VAPID key pair. Serverless platforms (Vercel,
+Netlify) can serve the app against the same database, but the reminder
+scheduler needs a process that stays alive — see the note at the end.
 
 ## Requirements
 
@@ -61,7 +62,8 @@ WantedBy=multi-user.target
 |---|---|---|
 | `COOKIE_SECURE=1` | **Yes, in production** | Session cookie sent only over HTTPS |
 | `PORT` | No (3000) | |
-| `DATA_DIR` | No (`./data`) | Point at the persistent volume on PaaS hosts |
+| `DATABASE_URL` | **Yes** | Postgres connection string (Supabase: use the pooler URL, port 6543) |
+| `DATA_DIR` | No (`./data`) | Avatars + VAPID keys; point at the persistent volume on PaaS hosts |
 | `INVITE_CODE` | First seed only | Otherwise a code is generated and printed |
 | `DEV_TOOLS` | **Never in production** | Enables time-travel endpoints |
 
@@ -73,7 +75,7 @@ WantedBy=multi-user.target
 
 ## Backups
 
-Everything lives in `DATA_DIR` (`league.db`, `uploads/`, `vapid.json`).
+League data lives in Postgres; `DATA_DIR` only holds `uploads/` and `vapid.json`.
 
 - From the admin panel: כללי → גיבוי → הורדה (downloads a consistent DB snapshot).
 - From the server: copy the whole `data/` folder (stop the process first, or use the admin download).
@@ -86,9 +88,9 @@ Everything lives in `DATA_DIR` (`league.db`, `uploads/`, `vapid.json`).
 3. Open from the home-screen icon → Profile → enable 🔔 notifications (iOS 16.4+).
 4. Send yourself a test: postpone/restore a fixture or wait for the next reminder window.
 
-## Moving to Postgres/Supabase later
+## Database
 
-The data layer is isolated for this: swap `server/src/db/schema.ts` imports
-from `drizzle-orm/sqlite-core` to `pg-core`, change the driver in
-`server/src/db/index.ts`, and re-run `npm run db:generate`. No raw SQL exists
-outside `server/src/db/`.
+Schema lives in `server/src/db/schema.ts` (drizzle, `pg-core`); the driver is
+`server/src/db/index.ts`. Migrations under `server/drizzle/` are applied
+automatically on boot, so a host with no shell (Vercel) still gets its tables.
+Change the schema with `npm run db:generate -w server`.
