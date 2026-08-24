@@ -1,7 +1,10 @@
+import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { migrate } from 'drizzle-orm/pglite/migrator';
 import type { Express } from 'express';
 import request from 'supertest';
 import { buildApp } from '../app.js';
-import { createDb, type Db } from '../db/index.js';
+import { migrationsFolder, schema, type Db } from '../db/index.js';
 import { seedBase } from '../db/seed.js';
 import { FixedClock } from '../lib/clock.js';
 
@@ -15,9 +18,24 @@ export interface TestContext {
   seasonId: number;
 }
 
-export function createTestApp(): TestContext {
-  const db = createDb(':memory:');
-  const seed = seedBase(db, { inviteCode: TEST_INVITE });
+/**
+ * A migrated, empty database for tests that drive the engine directly and have
+ * no use for the HTTP layer.
+ */
+export async function createTestDb(): Promise<Db> {
+  const db = drizzle(new PGlite(), { schema }) as unknown as Db;
+  await migrate(db as never, { migrationsFolder });
+  return db;
+}
+
+/**
+ * Each test gets its own Postgres — PGlite runs the real engine in-process,
+ * so the suite exercises the same SQL the deployed Supabase database does
+ * without anyone needing a database server.
+ */
+export async function createTestApp(): Promise<TestContext> {
+  const db = await createTestDb();
+  const seed = await seedBase(db, { inviteCode: TEST_INVITE });
   const clock = new FixedClock(T0);
   const app = buildApp({ db, clock });
   return { db, clock, app, seasonId: seed.seasonId };
