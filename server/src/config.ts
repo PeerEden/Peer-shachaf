@@ -9,6 +9,12 @@ const onVercel = !!process.env.VERCEL;
 
 export const config = {
   port: Number(process.env.PORT ?? 3000),
+  /**
+   * Postgres connection string (Supabase). This is the entire deployment
+   * contract: set it and the league has one shared database that outlives
+   * every restart; leave it unset and there is nowhere to keep anything.
+   */
+  databaseUrl: process.env.DATABASE_URL,
   /** Everything mutable lives here: league.db, uploads/, vapid.json. Backup = copy this folder. */
   dataDir: process.env.DATA_DIR ?? (onVercel ? '/tmp/league-data' : path.join(repoRoot, 'data')),
   clientDist: path.join(repoRoot, 'client', 'dist'),
@@ -16,11 +22,10 @@ export const config = {
   inviteCode: process.env.INVITE_CODE,
   cookieSecure: process.env.COOKIE_SECURE === '1' || onVercel,
   /**
-   * True where the database lives on throwaway storage (serverless /tmp):
-   * accounts and predictions do NOT survive. The UI warns people before they
-   * build a league on it. A host with a persistent disk leaves this false.
+   * True while no real database is configured, so the UI can warn people
+   * before they build a league on something that cannot keep it.
    */
-  ephemeralStorage: onVercel && !process.env.DATA_DIR,
+  ephemeralStorage: !process.env.DATABASE_URL,
   /** Enables /api/dev time-travel endpoints. Never set in production. */
   devTools: process.env.DEV_TOOLS === '1',
   isTest: process.env.NODE_ENV === 'test',

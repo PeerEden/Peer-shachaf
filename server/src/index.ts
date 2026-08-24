@@ -1,6 +1,6 @@
 import { buildApp } from './app.js';
-import { config, dataPath } from './config.js';
-import { createDb } from './db/index.js';
+import { config } from './config.js';
+import { createDb, runMigrations } from './db/index.js';
 import { purgeExpiredSessions } from './auth/service.js';
 import { OffsetClock, SystemClock } from './lib/clock.js';
 import { buildPushEvents } from './push/events.js';
@@ -8,7 +8,16 @@ import { PushScheduler } from './push/scheduler.js';
 import { PushService, webPushTransport } from './push/sender.js';
 import { configureWebPush, ensureVapidKeys } from './push/vapid.js';
 
-const db = createDb(dataPath('league.db'));
+if (!config.databaseUrl) {
+  console.error(
+    'DATABASE_URL חסר — צריך כתובת של מסד נתונים Postgres (Supabase) כדי להפעיל את השרת.',
+  );
+  process.exit(1);
+}
+
+const db = createDb(config.databaseUrl);
+await runMigrations(db);
+
 // DEV_TOOLS=1 swaps in an offsettable clock so /api/admin/dev/clock can time-travel.
 const clock = config.devTools ? new OffsetClock() : new SystemClock();
 
@@ -27,7 +36,11 @@ const runTick = () => {
 };
 runTick();
 setInterval(runTick, 60 * 1000);
-setInterval(() => purgeExpiredSessions(db, clock), 6 * 60 * 60 * 1000);
+setInterval(() => {
+  purgeExpiredSessions(db, clock).catch((error) =>
+    console.error('session purge failed:', error),
+  );
+}, 6 * 60 * 60 * 1000);
 
 app.listen(config.port, () => {
   console.log(`⚽ 0 מושג בכדורגל — server listening on http://localhost:${config.port}`);
