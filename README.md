@@ -2,11 +2,11 @@
 
 מערכת ליגת ניחושי תוצאות פרטית לליגת העל הישראלית — PWA בעברית, מותאמת לאייפון,
 עם ניקוד 3/1/0, נעילת מחזורים, טבלה חיה, פודיום, תארים, היסטוריה, פאנל ניהול
-והתראות Push. ללא שירותים חיצוניים: שרת Node יחיד עם SQLite.
+והתראות Push. שרת Node יחיד מול מסד נתונים Postgres (Supabase).
 
 A private football score-prediction league for the Israeli Premier League —
-Hebrew RTL iPhone-first PWA backed by a single self-contained Node server
-(Express + SQLite). No external services, free to run anywhere.
+Hebrew RTL iPhone-first PWA backed by a single Node server (Express) and a
+Postgres database.
 
 ## הרצה מקומית / Quick start
 
@@ -38,7 +38,8 @@ npm run seed:demo                      # demo users/fixtures for local testing
 | Var | Default | Purpose |
 |---|---|---|
 | `PORT` | `3000` | HTTP port |
-| `DATA_DIR` | `./data` | SQLite DB, uploads, VAPID keys — **back up this folder** |
+| `DATABASE_URL` | — | **Required.** Postgres/Supabase connection string |
+| `DATA_DIR` | `./data` | Uploaded avatars + VAPID keys |
 | `INVITE_CODE` | generated | League invite code used at first seed |
 | `COOKIE_SECURE` | off | Set `1` in production (HTTPS) |
 | `DEV_TOOLS` | off | Set `1` to enable time-travel endpoints for testing. Never in production |
@@ -53,29 +54,34 @@ npm run build && (cd client && npx playwright test)   # E2E walkthrough
 
 ## פריסה / Deployment
 
-The app is one long-lived Node process with a SQLite file — it needs a host with
-a **persistent disk** and **HTTPS** (required for PWA install + push):
+The app is one long-lived Node process talking to Postgres — it needs a host with
+a **persistent disk** (avatars, VAPID keys) and **HTTPS** (required for PWA install + push):
 a small VPS, Railway/Fly.io with a volume, etc. Full guide: see `docs/DEPLOY.md`.
 
-Backup = copy the `data/` folder (or download from the admin panel).
+Backup = download the JSON export from the admin panel (כללי → גיבוי).
 
-## הרצה ב-Vercel / Running on Vercel
+## הרצה ב-Vercel + Supabase / Running on Vercel
 
-אפשר לייבא את הריפו ל-Vercel והוא יעלה בלי שום הגדרה נוספת
-(`vercel.json` + `api/index.ts` דואגים לזה). הליגה נפתחת **ריקה**: אין משתמשי
-דמו, אין משחקים ואין ניחושים — כולם נרשמים בעצמם ובוחרים סיסמה.
+הריפו מוכן לפריסה ב-Vercel מול מסד נתונים Postgres של Supabase. **צריך להגדיר
+דבר אחד בלבד** — ואז הכול עובד ונשמר:
 
-- קוד ההזמנה להרשמה: `DEMO` (או הערך של `INVITE_CODE` אם הוגדר).
-- **הנרשם הראשון הופך אוטומטית לאדמין** ומזין קבוצות, משחקים ותוצאות
-  מפאנל הניהול (🛠️ בפרופיל).
-- רשימת הקבוצות מגיעה מהרכב 2025/26 — האדמין עורך אותה לפי המציאות.
+1. ב-Supabase: Project Settings → Database → Connection string → **URI**,
+   ולוודא שזו הכתובת של ה-**pooler** (פורט `6543`).
+2. ב-Vercel: Settings → Environment Variables → להוסיף
+   `DATABASE_URL` עם הכתובת הזאת (להחליף `[YOUR-PASSWORD]` בסיסמת המסד).
+3. Deployments → Redeploy.
 
-⚠️ **מגבלה חשובה ב-Vercel:** מסד הנתונים יושב ב-`/tmp`, ולכן **כל ההרשמות
-והניחושים נמחקים** בכל deploy ומדי פעם (cold start), וגם תזכורות ה-Push לא
-נשלחות. לליגה אמיתית שנשמרת לאורך זמן — פרסו לפי `docs/DEPLOY.md`
-(שרת עם דיסק קבוע; אותו קוד בדיוק, בלי שינויים).
+הטבלאות נוצרות לבד בהפעלה הראשונה — אין מה להריץ ידנית. הנרשם הראשון הופך
+אוטומטית לאדמין, וקוד ההזמנה להרשמה הוא `DEMO` (או הערך של `INVITE_CODE`).
 
-On Vercel the league starts empty — everyone registers with the invite code
-and picks their own password, and the first registrant becomes the admin.
-Data lives in ephemeral `/tmp`, so it is wiped on cold starts and deploys;
-for a league that persists, deploy per `docs/DEPLOY.md`.
+בלי `DATABASE_URL` האפליקציה תעלה אבל תציג הודעה שאין מסד נתונים — בכוונה,
+כדי שאף אחד לא יפתח ליגה על משהו שלא שומר אותה.
+
+⚠️ מה ש-Vercel עדיין לא נותן, גם עם מסד נתונים: **תזכורות Push** (הן צריכות
+תהליך שרץ ברציפות) ו**תמונות פרופיל** (נשמרות לדיסק זמני). לליגה עם כל
+היכולות — ראו `docs/DEPLOY.md`.
+
+Deploying on Vercel needs exactly one setting: `DATABASE_URL` pointing at the
+Supabase **pooler** connection string (port 6543). Tables are created on first
+boot. Push reminders and avatar uploads still require the long-running
+deployment described in `docs/DEPLOY.md`.

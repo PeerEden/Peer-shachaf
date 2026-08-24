@@ -2,7 +2,7 @@
 
 Private football score-prediction league (Israeli Premier League) for a
 group of friends. Hebrew RTL iPhone-first PWA. Fully self-contained: one
-Express server + SQLite, zero external services.
+Express server + Postgres (Supabase).
 
 ## Commands
 
@@ -24,8 +24,8 @@ Express server + SQLite, zero external services.
 - **Locking & privacy are server-side** (`engine/round-lifecycle.ts`:
   `isFixturePredictable`, `arePredictionsVisible`); every endpoint that
   serializes predictions must filter through them. The client only decorates.
-- **No raw SQL outside `server/src/db/`** — the future Postgres/Supabase swap
-  is confined to `db/schema.ts` + `db/index.ts`.
+- **No raw SQL outside `server/src/db/`** — the database lives behind
+  `db/schema.ts` + `db/index.ts`. Every DB call is async: `await` it.
 - **Push idempotency** = unique `event_key` in `notification_log`; the
   scheduler is stateless (derives everything from DB each tick). New
   notification types must claim an event key before sending.
