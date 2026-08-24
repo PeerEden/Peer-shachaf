@@ -8,31 +8,32 @@ import { toUserPublic } from '../lib/dto.js';
 import { getUsersMap } from './round-view.js';
 
 /** Ranks of the latest closed round (the baseline for ↑↓ movement badges). */
-export function getPreviousRanks(ctx: EngineCtx, seasonId: number): Map<number, number> {
-  const lastClosed = ctx.db
+export async function getPreviousRanks(
+  ctx: EngineCtx,
+  seasonId: number,
+): Promise<Map<number, number>> {
+  const [lastClosed] = await ctx.db
     .select()
     .from(rounds)
     .where(and(eq(rounds.seasonId, seasonId), eq(rounds.status, 'closed')))
-    .orderBy(desc(rounds.number))
-    .get();
+    .orderBy(desc(rounds.number));
   const map = new Map<number, number>();
   if (!lastClosed) return map;
-  for (const row of ctx.db
+  for (const row of await ctx.db
     .select()
     .from(roundUserStats)
-    .where(eq(roundUserStats.roundId, lastClosed.id))
-    .all()) {
+    .where(eq(roundUserStats.roundId, lastClosed.id))) {
     map.set(row.userId, row.rankAfter);
   }
   return map;
 }
 
 /** Live season standings: totals over every stored score + current titles + movement. */
-export function getStandingsView(ctx: EngineCtx, seasonId: number): StandingsEntry[] {
-  const totals = computeSeasonTotals(ctx.db, seasonId);
-  const titles = computeCurrentTitles(ctx.db, seasonId);
-  const prevRanks = getPreviousRanks(ctx, seasonId);
-  const usersMap = getUsersMap(ctx.db);
+export async function getStandingsView(ctx: EngineCtx, seasonId: number): Promise<StandingsEntry[]> {
+  const totals = await computeSeasonTotals(ctx.db, seasonId);
+  const titles = await computeCurrentTitles(ctx.db, seasonId);
+  const prevRanks = await getPreviousRanks(ctx, seasonId);
+  const usersMap = await getUsersMap(ctx.db);
 
   return totals
     .map((t) => {

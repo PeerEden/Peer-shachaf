@@ -20,21 +20,17 @@ type RoundRow = typeof rounds.$inferSelect;
 type FixtureRow = typeof fixtures.$inferSelect;
 type UserRow = typeof users.$inferSelect;
 
-export function getTeamsMap(db: Db): Map<number, TeamDto> {
+export async function getTeamsMap(db: Db): Promise<Map<number, TeamDto>> {
   return new Map(
-    db
-      .select()
-      .from(teams)
-      .all()
-      .map((t) => [
-        t.id,
-        { id: t.id, name: t.name, shortName: t.shortName, color: t.color, isActive: t.isActive },
-      ]),
+    (await db.select().from(teams)).map((t) => [
+      t.id,
+      { id: t.id, name: t.name, shortName: t.shortName, color: t.color, isActive: t.isActive },
+    ]),
   );
 }
 
-export function getUsersMap(db: Db): Map<number, UserRow> {
-  return new Map(db.select().from(users).all().map((u) => [u.id, u]));
+export async function getUsersMap(db: Db): Promise<Map<number, UserRow>> {
+  return new Map((await db.select().from(users)).map((u) => [u.id, u]));
 }
 
 export function toFixtureDto(fixture: FixtureRow, teamsMap: Map<number, TeamDto>): FixtureDto {
@@ -83,15 +79,15 @@ export function predictableFixturesOfRound(roundFixtures: FixtureRow[]): Fixture
   );
 }
 
-export function getCompletionStatus(
+export async function getCompletionStatus(
   db: Db,
   roundFixtures: FixtureRow[],
-): CompletionStatusEntry[] {
+): Promise<CompletionStatusEntry[]> {
   const relevant = predictableFixturesOfRound(roundFixtures);
   const fixtureIds = relevant.map((f) => f.id);
-  const allUsers = db.select().from(users).all();
+  const allUsers = await db.select().from(users);
   const predictionRows = fixtureIds.length
-    ? db.select().from(predictions).where(inArray(predictions.fixtureId, fixtureIds)).all()
+    ? await db.select().from(predictions).where(inArray(predictions.fixtureId, fixtureIds))
     : [];
   const filledByUser = new Map<number, number>();
   for (const p of predictionRows) {
@@ -122,24 +118,23 @@ export interface RoundPredictionEntry {
  * serialized for fixtures where arePredictionsVisible() — the privacy rule
  * lives here on the server, never in the client.
  */
-export function getRoundView(ctx: EngineCtx, roundId: number, viewer: UserRow) {
+export async function getRoundView(ctx: EngineCtx, roundId: number, viewer: UserRow) {
   const { db, clock } = ctx;
-  const round = db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+  const [round] = await db.select().from(rounds).where(eq(rounds.id, roundId));
   if (!round) throw notFound('המחזור לא נמצא');
   const now = clock.now();
 
-  const roundFixtures = db
+  const roundFixtures = await db
     .select()
     .from(fixtures)
     .where(eq(fixtures.roundId, roundId))
-    .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id))
-    .all();
-  const teamsMap = getTeamsMap(db);
-  const usersMap = getUsersMap(db);
+    .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id));
+  const teamsMap = await getTeamsMap(db);
+  const usersMap = await getUsersMap(db);
   const fixtureIds = roundFixtures.map((f) => f.id);
 
   const allPredictions = fixtureIds.length
-    ? db.select().from(predictions).where(inArray(predictions.fixtureId, fixtureIds)).all()
+    ? await db.select().from(predictions).where(inArray(predictions.fixtureId, fixtureIds))
     : [];
   const visibleFixtureIds = new Set(
     roundFixtures.filter((f) => arePredictionsVisible(f, round, now)).map((f) => f.id),
@@ -162,11 +157,10 @@ export function getRoundView(ctx: EngineCtx, roundId: number, viewer: UserRow) {
   }
 
   const scoreRows = fixtureIds.length
-    ? db
+    ? await db
         .select()
         .from(predictionScores)
         .where(inArray(predictionScores.fixtureId, fixtureIds))
-        .all()
     : [];
   const scores: PredictionScoreDto[] = scoreRows
     .filter((s) => visibleFixtureIds.has(s.fixtureId))
@@ -184,18 +178,14 @@ export function getRoundView(ctx: EngineCtx, roundId: number, viewer: UserRow) {
     fixtures: roundFixtures.map((f) => toFixtureDto(f, teamsMap)),
     predictions: visiblePredictions,
     scores,
-    completionStatus: getCompletionStatus(db, roundFixtures),
+    completionStatus: await getCompletionStatus(db, roundFixtures),
   };
 }
 
 /** The single currently-open round of the active season (the league is sequential). */
-export function getOpenRound(db: Db, seasonId: number): RoundRow | null {
+export async function getOpenRound(db: Db, seasonId: number): Promise<RoundRow | null> {
   return (
-    db
-      .select()
-      .from(rounds)
-      .where(eq(rounds.seasonId, seasonId))
-      .all()
+    (await db.select().from(rounds).where(eq(rounds.seasonId, seasonId)))
       .filter((r) => r.status === 'open')
       .sort((a, b) => a.number - b.number)[0] ?? null
   );
