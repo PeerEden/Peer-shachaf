@@ -8,7 +8,7 @@ export interface Actor {
 
 export const SYSTEM_ACTOR: Actor = { id: null, name: 'system' };
 
-export function audit(
+export async function audit(
   db: Db,
   actor: Actor,
   action: string,
@@ -16,16 +16,14 @@ export function audit(
   entityId: string | number | null,
   before: unknown,
   after: unknown,
-): void {
-  db.insert(auditLog)
-    .values({
-      actorUserId: actor.id,
-      actorName: actor.name,
-      action,
-      entityType,
-      entityId: entityId === null ? null : String(entityId),
-      beforeJson: before === undefined || before === null ? null : JSON.stringify(before),
-      afterJson: after === undefined || after === null ? null : JSON.stringify(after),
-    })
-    .run();
+): Promise<void> {
+  await db.insert(auditLog).values({
+    actorUserId: actor.id,
+    actorName: actor.name,
+    action,
+    entityType,
+    entityId: entityId === null ? null : String(entityId),
+    beforeJson: before === undefined || before === null ? null : JSON.stringify(before),
+    afterJson: after === undefined || after === null ? null : JSON.stringify(after),
+  });
 }
