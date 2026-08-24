@@ -12,7 +12,7 @@ type Handler = (req: IncomingMessage, res: ServerResponse) => unknown;
 let handler: Handler;
 try {
   const mod = await import('./_bootstrap.js');
-  handler = mod.bootstrap() as unknown as Handler;
+  handler = (await mod.bootstrap()) as unknown as Handler;
 } catch (error) {
   const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
   console.error('BOOT FAILED:', message);
