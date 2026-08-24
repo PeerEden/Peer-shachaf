@@ -1,50 +1,52 @@
 /**
- * The single file that defines the entire database.
+ * The single file that defines the entire database (Postgres / Supabase).
  *
- * Portability note (the "Supabase later" contract): to move to Postgres,
- * switch these imports to drizzle-orm/pg-core (integer PKs → serial,
- * timestamp_ms → timestamp), swap the driver in ./index.ts, and re-run
- * `npm run db:generate`. No raw SQL exists outside this folder.
+ * Timestamps are `timestamptz`, so the server never reasons about time zones.
+ * Keeping every table definition here — and no raw SQL anywhere outside this
+ * folder — is what kept the move off SQLite confined to this file + ./index.ts.
  */
 import {
+  boolean,
   index,
   integer,
-  sqliteTable,
+  pgTable,
+  serial,
   text,
+  timestamp,
   uniqueIndex,
-} from 'drizzle-orm/sqlite-core';
+} from 'drizzle-orm/pg-core';
 
-const id = () => integer('id').primaryKey({ autoIncrement: true });
+const id = () => serial('id').primaryKey();
 const createdAt = () =>
-  integer('created_at', { mode: 'timestamp_ms' })
+  timestamp('created_at', { withTimezone: true, mode: 'date' })
     .notNull()
     .$defaultFn(() => new Date());
 
-export const leagueSettings = sqliteTable('league_settings', {
+export const leagueSettings = pgTable('league_settings', {
   id: integer('id').primaryKey(),
   leagueName: text('league_name').notNull().default('0 מושג בכדורגל'),
   inviteCode: text('invite_code').notNull(),
   createdAt: createdAt(),
 });
 
-export const seasons = sqliteTable('seasons', {
+export const seasons = pgTable('seasons', {
   id: id(),
   name: text('name').notNull().unique(),
   status: text('status', { enum: ['active', 'archived'] }).notNull().default('active'),
   startedAt: createdAt(),
-  archivedAt: integer('archived_at', { mode: 'timestamp_ms' }),
+  archivedAt: timestamp('archived_at', { withTimezone: true, mode: 'date' }),
 });
 
-export const teams = sqliteTable('teams', {
+export const teams = pgTable('teams', {
   id: id(),
   name: text('name').notNull().unique(),
   shortName: text('short_name').notNull(),
   color: text('color').notNull().default('#22c55e'),
-  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  isActive: boolean('is_active').notNull().default(true),
   createdAt: createdAt(),
 });
 
-export const users = sqliteTable('users', {
+export const users = pgTable('users', {
   id: id(),
   username: text('username').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
@@ -55,7 +57,7 @@ export const users = sqliteTable('users', {
   createdAt: createdAt(),
 });
 
-export const sessions = sqliteTable(
+export const sessions = pgTable(
   'sessions',
   {
     id: id(),
@@ -64,14 +66,14 @@ export const sessions = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     createdAt: createdAt(),
-    expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
-    lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    expiresAt: timestamp('expires_at', { withTimezone: true, mode: 'date' }).notNull(),
+    lastSeenAt: timestamp('last_seen_at', { withTimezone: true, mode: 'date' }).notNull(),
     userAgent: text('user_agent'),
   },
   (t) => [index('sessions_user_idx').on(t.userId), index('sessions_expires_idx').on(t.expiresAt)],
 );
 
-export const rounds = sqliteTable(
+export const rounds = pgTable(
   'rounds',
   {
     id: id(),
@@ -90,9 +92,9 @@ export const rounds = sqliteTable(
      */
     status: text('status', { enum: ['pending', 'open', 'closed'] }).notNull().default('pending'),
     /** MIN(kickoff) of non-completion fixtures; recomputed on every fixture change. */
-    lockAt: integer('lock_at', { mode: 'timestamp_ms' }),
-    openedAt: integer('opened_at', { mode: 'timestamp_ms' }),
-    closedAt: integer('closed_at', { mode: 'timestamp_ms' }),
+    lockAt: timestamp('lock_at', { withTimezone: true, mode: 'date' }),
+    openedAt: timestamp('opened_at', { withTimezone: true, mode: 'date' }),
+    closedAt: timestamp('closed_at', { withTimezone: true, mode: 'date' }),
   },
   (t) => [
     uniqueIndex('rounds_season_number_phase_idx').on(t.seasonId, t.number, t.phase),
@@ -100,7 +102,7 @@ export const rounds = sqliteTable(
   ],
 );
 
-export const fixtures = sqliteTable(
+export const fixtures = pgTable(
   'fixtures',
   {
     id: id(),
@@ -116,7 +118,7 @@ export const fixtures = sqliteTable(
     awayTeamId: integer('away_team_id')
       .notNull()
       .references(() => teams.id),
-    kickoffAt: integer('kickoff_at', { mode: 'timestamp_ms' }).notNull(),
+    kickoffAt: timestamp('kickoff_at', { withTimezone: true, mode: 'date' }).notNull(),
     status: text('status', { enum: ['scheduled', 'live', 'finished', 'postponed', 'cancelled'] })
       .notNull()
       .default('scheduled'),
@@ -124,10 +126,10 @@ export const fixtures = sqliteTable(
     awayScore: integer('away_score'),
     liveMinute: text('live_minute'),
     /** A postponed game rescheduled to a new date (משחק השלמה). */
-    isCompletion: integer('is_completion', { mode: 'boolean' }).notNull().default(false),
+    isCompletion: boolean('is_completion').notNull().default(false),
     /** Completion games only: predictions reopen at this time (kickoff − 7 days). */
-    predictionOpenAt: integer('prediction_open_at', { mode: 'timestamp_ms' }),
-    finalizedAt: integer('finalized_at', { mode: 'timestamp_ms' }),
+    predictionOpenAt: timestamp('prediction_open_at', { withTimezone: true, mode: 'date' }),
+    finalizedAt: timestamp('finalized_at', { withTimezone: true, mode: 'date' }),
     createdAt: createdAt(),
   },
   (t) => [
@@ -137,7 +139,7 @@ export const fixtures = sqliteTable(
   ],
 );
 
-export const predictions = sqliteTable(
+export const predictions = pgTable(
   'predictions',
   {
     id: id(),
@@ -149,7 +151,7 @@ export const predictions = sqliteTable(
       .references(() => fixtures.id, { onDelete: 'cascade' }),
     homePred: integer('home_pred').notNull(),
     awayPred: integer('away_pred').notNull(),
-    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true, mode: 'date' }).notNull(),
   },
   (t) => [
     uniqueIndex('predictions_user_fixture_idx').on(t.userId, t.fixtureId),
@@ -161,7 +163,7 @@ export const predictions = sqliteTable(
  * Final points only. Live/provisional points are always computed on the fly
  * from shared/scoring.ts and never stored, so they can't go stale.
  */
-export const predictionScores = sqliteTable(
+export const predictionScores = pgTable(
   'prediction_scores',
   {
     id: id(),
@@ -178,10 +180,10 @@ export const predictionScores = sqliteTable(
       .notNull()
       .references(() => seasons.id, { onDelete: 'cascade' }),
     points: integer('points').notNull(),
-    isExact: integer('is_exact', { mode: 'boolean' }).notNull(),
-    isOutcome: integer('is_outcome', { mode: 'boolean' }).notNull(),
-    isCompletion: integer('is_completion', { mode: 'boolean' }).notNull().default(false),
-    computedAt: integer('computed_at', { mode: 'timestamp_ms' }).notNull(),
+    isExact: boolean('is_exact').notNull(),
+    isOutcome: boolean('is_outcome').notNull(),
+    isCompletion: boolean('is_completion').notNull().default(false),
+    computedAt: timestamp('computed_at', { withTimezone: true, mode: 'date' }).notNull(),
   },
   (t) => [
     uniqueIndex('prediction_scores_user_fixture_idx').on(t.userId, t.fixtureId),
@@ -191,7 +193,7 @@ export const predictionScores = sqliteTable(
 );
 
 /** Frozen round summary + standings snapshot, written once at round close. */
-export const roundUserStats = sqliteTable(
+export const roundUserStats = pgTable(
   'round_user_stats',
   {
     id: id(),
@@ -205,7 +207,7 @@ export const roundUserStats = sqliteTable(
     exactCount: integer('exact_count').notNull(),
     outcomeCount: integer('outcome_count').notNull(),
     rankInRound: integer('rank_in_round').notNull(),
-    isRoundWinner: integer('is_round_winner', { mode: 'boolean' }).notNull(),
+    isRoundWinner: boolean('is_round_winner').notNull(),
     seasonTotalAfter: integer('season_total_after').notNull(),
     rankAfter: integer('rank_after').notNull(),
     rankBefore: integer('rank_before'),
@@ -215,7 +217,7 @@ export const roundUserStats = sqliteTable(
 );
 
 /** Persisted per-round titles: round_winner 👑, round_prophet 🧙, black_round 💀, climber 🚀. */
-export const roundTitles = sqliteTable(
+export const roundTitles = pgTable(
   'round_titles',
   {
     id: id(),
@@ -229,13 +231,13 @@ export const roundTitles = sqliteTable(
       .notNull()
       .references(() => users.id, { onDelete: 'cascade' }),
     titleCode: text('title_code').notNull(),
-    awardedAt: integer('awarded_at', { mode: 'timestamp_ms' }).notNull(),
+    awardedAt: timestamp('awarded_at', { withTimezone: true, mode: 'date' }).notNull(),
   },
   (t) => [uniqueIndex('round_titles_round_user_title_idx').on(t.roundId, t.userId, t.titleCode)],
 );
 
 /** Written at season archive; display_name is denormalized so honors survive user deletion. */
-export const seasonHonors = sqliteTable('season_honors', {
+export const seasonHonors = pgTable('season_honors', {
   id: id(),
   seasonId: integer('season_id')
     .notNull()
@@ -247,7 +249,7 @@ export const seasonHonors = sqliteTable('season_honors', {
   createdAt: createdAt(),
 });
 
-export const pushSubscriptions = sqliteTable(
+export const pushSubscriptions = pgTable(
   'push_subscriptions',
   {
     id: id(),
@@ -259,14 +261,14 @@ export const pushSubscriptions = sqliteTable(
     auth: text('auth').notNull(),
     userAgent: text('user_agent'),
     createdAt: createdAt(),
-    lastSuccessAt: integer('last_success_at', { mode: 'timestamp_ms' }),
+    lastSuccessAt: timestamp('last_success_at', { withTimezone: true, mode: 'date' }),
     failCount: integer('fail_count').notNull().default(0),
   },
   (t) => [index('push_subscriptions_user_idx').on(t.userId)],
 );
 
 /** Idempotency + audit for notifications: unique event_key prevents double-sends. */
-export const notificationLog = sqliteTable(
+export const notificationLog = pgTable(
   'notification_log',
   {
     id: id(),
@@ -282,7 +284,7 @@ export const notificationLog = sqliteTable(
   (t) => [index('notification_log_created_idx').on(t.createdAt)],
 );
 
-export const auditLog = sqliteTable(
+export const auditLog = pgTable(
   'audit_log',
   {
     id: id(),

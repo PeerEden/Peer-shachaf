@@ -4,8 +4,8 @@
  */
 import bcrypt from 'bcryptjs';
 import { eq } from 'drizzle-orm';
-import { dataPath } from '../config.js';
-import { createDb } from './index.js';
+import { config } from '../config.js';
+import { closeDb, createDb, runMigrations } from './index.js';
 import { users } from './schema.js';
 
 const username = process.argv[2]?.toLowerCase();
@@ -15,15 +15,22 @@ if (!username || !newPassword || newPassword.length < 6) {
   process.exit(1);
 }
 
-const db = createDb(dataPath('league.db'));
-const user = db.select().from(users).where(eq(users.username, username)).get();
+if (!config.databaseUrl) {
+  console.error('❌ חסר DATABASE_URL — הגדירו את כתובת מסד הנתונים (Postgres/Supabase) ונסו שוב.');
+  process.exit(1);
+}
+
+const db = createDb(config.databaseUrl);
+await runMigrations(db);
+const [user] = await db.select().from(users).where(eq(users.username, username));
 if (!user) {
   console.error(`❌ No user named "${username}".`);
   process.exit(1);
 }
 
-db.update(users)
+await db
+  .update(users)
   .set({ passwordHash: bcrypt.hashSync(newPassword, 11) })
-  .where(eq(users.id, user.id))
-  .run();
+  .where(eq(users.id, user.id));
 console.log(`🔑 Password updated for ${user.displayName} (@${user.username}).`);
+await closeDb(db);

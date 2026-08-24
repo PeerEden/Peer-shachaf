@@ -6,9 +6,9 @@
  * `npm run seed:demo`   — base seed + demo users/fixtures/predictions
  *                         (implemented in ./seed-demo.ts; requires the engine)
  */
-import { config, dataPath } from '../config.js';
+import { config } from '../config.js';
 import { generateInviteCode } from '../lib/crypto.js';
-import { createDb, type Db } from './index.js';
+import { closeDb, createDb, runMigrations, type Db } from './index.js';
 import { seedDemo } from './seed-demo.js';
 import { leagueSettings, rounds, seasons, teams } from './schema.js';
 
@@ -36,8 +36,8 @@ export interface SeedResult {
   createdSettings: boolean;
 }
 
-export function seedBase(db: Db, opts: { inviteCode?: string } = {}): SeedResult {
-  const existingSettings = db.select().from(leagueSettings).all()[0];
+export async function seedBase(db: Db, opts: { inviteCode?: string } = {}): Promise<SeedResult> {
+  const existingSettings = (await db.select().from(leagueSettings))[0];
   let inviteCode: string;
   let createdSettings = false;
 
@@ -45,33 +45,31 @@ export function seedBase(db: Db, opts: { inviteCode?: string } = {}): SeedResult
     inviteCode = existingSettings.inviteCode;
   } else {
     inviteCode = opts.inviteCode ?? generateInviteCode();
-    db.insert(leagueSettings).values({ id: 1, inviteCode }).run();
+    await db.insert(leagueSettings).values({ id: 1, inviteCode });
     createdSettings = true;
   }
 
-  let season = db.select().from(seasons).all()[0];
+  let season = (await db.select().from(seasons))[0];
   if (!season) {
-    season = db.insert(seasons).values({ name: '2026/27', status: 'active' }).returning().get();
+    season = (await db.insert(seasons).values({ name: '2026/27', status: 'active' }).returning())[0]!;
   }
 
-  const existingTeams = db.select().from(teams).all();
+  const existingTeams = await db.select().from(teams);
   if (existingTeams.length === 0) {
-    db.insert(teams).values(LIGAT_HAAL_TEAMS).run();
+    await db.insert(teams).values(LIGAT_HAAL_TEAMS);
   }
 
-  const existingRounds = db.select().from(rounds).all();
+  const existingRounds = await db.select().from(rounds);
   if (existingRounds.length === 0) {
     for (let n = 1; n <= 26; n++) {
-      db.insert(rounds)
-        .values({
-          seasonId: season.id,
-          number: n,
-          name: `מחזור ${n}`,
-          phase: 'regular',
-          status: n === 1 ? 'open' : 'pending',
-          openedAt: n === 1 ? new Date() : null,
-        })
-        .run();
+      await db.insert(rounds).values({
+        seasonId: season.id,
+        number: n,
+        name: `מחזור ${n}`,
+        phase: 'regular',
+        status: n === 1 ? 'open' : 'pending',
+        openedAt: n === 1 ? new Date() : null,
+      });
     }
   }
 
@@ -80,12 +78,19 @@ export function seedBase(db: Db, opts: { inviteCode?: string } = {}): SeedResult
 
 const isMain = process.argv[1]?.endsWith('seed.ts');
 if (isMain) {
-  const db = createDb(dataPath('league.db'));
-  const result = seedBase(db, { inviteCode: config.inviteCode });
+  if (!config.databaseUrl) {
+    console.error('❌ חסר DATABASE_URL — הגדירו את כתובת מסד הנתונים (Postgres/Supabase) ונסו שוב.');
+    process.exit(1);
+  }
+  const db = createDb(config.databaseUrl);
+  await runMigrations(db);
+  const result = await seedBase(db, { inviteCode: config.inviteCode });
   console.log(`✅ Seed complete (season 2026/27, ${LIGAT_HAAL_TEAMS.length} teams, 26 rounds).`);
   console.log(`🔑 League invite code: ${result.inviteCode}`);
 
   if (process.argv.includes('--demo')) {
-    seedDemo(db);
+    await seedDemo(db);
   }
+
+  await closeDb(db);
 }
