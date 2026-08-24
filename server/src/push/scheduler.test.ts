@@ -1,7 +1,7 @@
 import bcrypt from 'bcryptjs';
 import { asc, eq } from 'drizzle-orm';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createDb, type Db } from '../db/index.js';
+import { type Db } from '../db/index.js';
 import { notificationLog, predictions, pushSubscriptions, rounds, teams, users } from '../db/schema.js';
 import { seedBase } from '../db/seed.js';
 import { createFixture } from '../engine/fixture-admin.js';
@@ -10,6 +10,7 @@ import { enterFinalResult } from '../engine/scoring-engine.js';
 import type { EngineCtx } from '../engine/types.js';
 import { FixedClock } from '../lib/clock.js';
 import { SYSTEM_ACTOR } from '../lib/audit.js';
+import { createTestDb } from '../test/helpers.js';
 import { buildPushEvents } from './events.js';
 import { PushScheduler } from './scheduler.js';
 import { PushService, type PushTransport } from './sender.js';
@@ -30,9 +31,9 @@ interface Env {
   fixtureIds: [number, number];
 }
 
-function createEnv(): Env {
-  const db = createDb(':memory:');
-  seedBase(db, { inviteCode: 'TEST1234' });
+async function createEnv(): Promise<Env> {
+  const db = await createTestDb();
+  await seedBase(db, { inviteCode: 'TEST1234' });
   const clock = new FixedClock(T0);
   const sent: Env['sent'] = [];
   const transport: PushTransport = async (subscription, payload) => {
@@ -42,43 +43,44 @@ function createEnv(): Env {
   const scheduler = new PushScheduler(db, push);
   const ctx: EngineCtx = { db, clock, events: buildPushEvents(db, push) };
 
-  const userIds = ['dror', 'avi'].map(
-    (username, i) =>
-      db
-        .insert(users)
-        .values({
-          username,
-          passwordHash: bcrypt.hashSync('x', 4),
-          displayName: username,
-          phone: `05277000${i}1`,
-        })
-        .returning()
-        .get().id,
-  ) as [number, number];
+  const created: number[] = [];
+  for (const [i, username] of ['dror', 'avi'].entries()) {
+    const [user] = await db
+      .insert(users)
+      .values({
+        username,
+        passwordHash: bcrypt.hashSync('x', 4),
+        displayName: username,
+        phone: `05277000${i}1`,
+      })
+      .returning();
+    created.push(user!.id);
+  }
+  const userIds = created as [number, number];
   for (const userId of userIds) {
-    db.insert(pushSubscriptions)
-      .values({ userId, endpoint: `https://push.example/${userId}`, p256dh: 'k', auth: 'a' })
-      .run();
+    await db
+      .insert(pushSubscriptions)
+      .values({ userId, endpoint: `https://push.example/${userId}`, p256dh: 'k', auth: 'a' });
   }
 
-  const round1 = db.select().from(rounds).all().find((r) => r.number === 1)!;
-  const teamIds = db.select().from(teams).orderBy(asc(teams.id)).all().map((t) => t.id);
+  const round1 = (await db.select().from(rounds)).find((r) => r.number === 1)!;
+  const teamIds = (await db.select().from(teams).orderBy(asc(teams.id))).map((t) => t.id);
   const lockAt = T0.getTime() + 2 * DAY;
-  const f1 = createFixture(
+  const f1 = await createFixture(
     ctx,
     { roundId: round1.id, homeTeamId: teamIds[0]!, awayTeamId: teamIds[1]!, kickoffAt: lockAt },
     SYSTEM_ACTOR,
   );
-  const f2 = createFixture(
+  const f2 = await createFixture(
     ctx,
     { roundId: round1.id, homeTeamId: teamIds[2]!, awayTeamId: teamIds[3]!, kickoffAt: lockAt + 2 * HOUR },
     SYSTEM_ACTOR,
   );
   // dror predicted everything; avi predicted nothing
   for (const f of [f1, f2]) {
-    db.insert(predictions)
-      .values({ userId: userIds[0], fixtureId: f.id, homePred: 1, awayPred: 0, updatedAt: clock.now() })
-      .run();
+    await db
+      .insert(predictions)
+      .values({ userId: userIds[0], fixtureId: f.id, homePred: 1, awayPred: 0, updatedAt: clock.now() });
   }
 
   return { db, clock, ctx, scheduler, push, sent, userIds, lockAt, fixtureIds: [f1.id, f2.id] };
@@ -89,8 +91,8 @@ const titles = (env: Env) => env.sent.map((s) => s.payload.title);
 describe('push scheduler', () => {
   let env: Env;
 
-  beforeEach(() => {
-    env = createEnv();
+  beforeEach(async () => {
+    env = await createEnv();
   });
 
   it('sends nothing before the 24h window', async () => {
@@ -131,7 +133,7 @@ describe('push scheduler', () => {
     expect(firstBatch).toBe(2);
 
     // The earliest game is postponed BEFORE the lock → lockAt moves 2h later
-    postponeFixture(env.ctx, env.fixtureIds[0], SYSTEM_ACTOR);
+    await postponeFixture(env.ctx, env.fixtureIds[0], SYSTEM_ACTOR);
     await new Promise((resolve) => setTimeout(resolve, 10));
     const newLockAt = env.lockAt + 2 * HOUR;
 
@@ -146,8 +148,8 @@ describe('push scheduler', () => {
   });
 
   it('notifies on round close and next round opening', async () => {
-    enterFinalResult(env.ctx, env.fixtureIds[0], { homeScore: 1, awayScore: 0 }, SYSTEM_ACTOR);
-    enterFinalResult(env.ctx, env.fixtureIds[1], { homeScore: 2, awayScore: 2 }, SYSTEM_ACTOR);
+    await enterFinalResult(env.ctx, env.fixtureIds[0], { homeScore: 1, awayScore: 0 }, SYSTEM_ACTOR);
+    await enterFinalResult(env.ctx, env.fixtureIds[1], { homeScore: 2, awayScore: 2 }, SYSTEM_ACTOR);
     await new Promise((resolve) => setTimeout(resolve, 10)); // fire-and-forget events settle
 
     const allTitles = titles(env);
@@ -160,9 +162,9 @@ describe('push scheduler', () => {
   });
 
   it('notifies on postpone and reschedule, then reminds when the window opens', async () => {
-    postponeFixture(env.ctx, env.fixtureIds[1], SYSTEM_ACTOR);
+    await postponeFixture(env.ctx, env.fixtureIds[1], SYSTEM_ACTOR);
     const newKickoff = T0.getTime() + 30 * DAY;
-    rescheduleFixture(env.ctx, env.fixtureIds[1], newKickoff, SYSTEM_ACTOR);
+    await rescheduleFixture(env.ctx, env.fixtureIds[1], newKickoff, SYSTEM_ACTOR);
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     expect(titles(env).some((t) => t.includes('נדחה'))).toBe(true);
@@ -192,13 +194,12 @@ describe('push scheduler', () => {
       body: 'b',
     });
     expect(
-      env.db
+      await env.db
         .select()
         .from(pushSubscriptions)
-        .where(eq(pushSubscriptions.userId, env.userIds[0]))
-        .all(),
+        .where(eq(pushSubscriptions.userId, env.userIds[0])),
     ).toHaveLength(0);
-    const log = env.db.select().from(notificationLog).all().find((l) => l.eventKey === 'test:1');
+    const log = (await env.db.select().from(notificationLog)).find((l) => l.eventKey === 'test:1');
     expect(log?.status).toBe('failed');
   });
 });

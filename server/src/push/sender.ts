@@ -43,7 +43,7 @@ export class PushService {
   ) {}
 
   async sendEvent(message: PushMessage): Promise<boolean> {
-    const claimed = this.db
+    const [claimed] = await this.db
       .insert(notificationLog)
       .values({
         eventKey: message.eventKey,
@@ -54,22 +54,19 @@ export class PushService {
         status: 'sent',
       })
       .onConflictDoNothing()
-      .returning()
-      .get();
+      .returning();
     if (!claimed) return false; // already handled (idempotency)
 
-    const subscriptions = this.db
+    const subscriptions = await this.db
       .select()
       .from(pushSubscriptions)
-      .where(eq(pushSubscriptions.userId, message.userId))
-      .all();
+      .where(eq(pushSubscriptions.userId, message.userId));
 
     if (subscriptions.length === 0) {
-      this.db
+      await this.db
         .update(notificationLog)
         .set({ status: 'skipped_no_sub' })
-        .where(eq(notificationLog.id, claimed.id))
-        .run();
+        .where(eq(notificationLog.id, claimed.id));
       return false;
     }
 
@@ -85,32 +82,29 @@ export class PushService {
       try {
         await this.transport(subscription, payload);
         anySuccess = true;
-        this.db
+        await this.db
           .update(pushSubscriptions)
           .set({ lastSuccessAt: new Date(), failCount: 0 })
-          .where(eq(pushSubscriptions.id, subscription.id))
-          .run();
+          .where(eq(pushSubscriptions.id, subscription.id));
       } catch (error) {
         const status = (error as TransportError).statusCode;
         lastError = `endpoint ${subscription.id}: ${status ?? String(error)}`;
         if (status === 404 || status === 410) {
-          this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, subscription.id)).run();
+          await this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, subscription.id));
         } else {
-          this.db
+          await this.db
             .update(pushSubscriptions)
             .set({ failCount: subscription.failCount + 1 })
-            .where(eq(pushSubscriptions.id, subscription.id))
-            .run();
+            .where(eq(pushSubscriptions.id, subscription.id));
         }
       }
     }
 
     if (!anySuccess) {
-      this.db
+      await this.db
         .update(notificationLog)
         .set({ status: 'failed', error: lastError })
-        .where(eq(notificationLog.id, claimed.id))
-        .run();
+        .where(eq(notificationLog.id, claimed.id));
     }
     return anySuccess;
   }

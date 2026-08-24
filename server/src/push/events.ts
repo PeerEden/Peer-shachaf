@@ -11,34 +11,33 @@ import type { PushService } from './sender.js';
  * moment something happens. Errors are logged, never thrown into the engine.
  */
 export function buildPushEvents(db: Db, push: PushService): EngineEvents {
-  const allUserIds = () => db.select({ id: users.id }).from(users).all().map((u) => u.id);
+  const allUserIds = async () => (await db.select({ id: users.id }).from(users)).map((u) => u.id);
   const fire = (promise: Promise<unknown>) => {
     promise.catch((error) => console.error('push event failed:', error));
   };
 
-  const fixtureLabel = (fixtureId: number): string => {
-    const fixture = db.select().from(fixtures).where(eq(fixtures.id, fixtureId)).get();
+  const fixtureLabel = async (fixtureId: number): Promise<string> => {
+    const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
     if (!fixture) return 'משחק';
-    const home = db.select().from(teams).where(eq(teams.id, fixture.homeTeamId)).get();
-    const away = db.select().from(teams).where(eq(teams.id, fixture.awayTeamId)).get();
+    const [home] = await db.select().from(teams).where(eq(teams.id, fixture.homeTeamId));
+    const [away] = await db.select().from(teams).where(eq(teams.id, fixture.awayTeamId));
     return `${home?.name ?? '?'} נגד ${away?.name ?? '?'}`;
   };
 
-  return {
-    onRoundClosed(roundId) {
-      const round = db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+  const handlers = {
+    async onRoundClosed(roundId: number) {
+      const [round] = await db.select().from(rounds).where(eq(rounds.id, roundId));
       if (!round) return;
-      const winners = db
+      const winners = await db
         .select({ stat: roundUserStats, user: users })
         .from(roundUserStats)
         .innerJoin(users, eq(roundUserStats.userId, users.id))
-        .where(and(eq(roundUserStats.roundId, roundId), eq(roundUserStats.isRoundWinner, true)))
-        .all();
+        .where(and(eq(roundUserStats.roundId, roundId), eq(roundUserStats.isRoundWinner, true)));
       const body =
         winners.length > 0
           ? `👑 ${winners.map((w) => w.user.displayName).join(' + ')} עם ${winners[0]!.stat.points} נקודות!`
           : 'בלי מנצח הפעם… מחזור קשה לכולם 💀';
-      for (const userId of allUserIds()) {
+      for (const userId of await allUserIds()) {
         fire(
           push.sendEvent({
             eventKey: `round:${roundId}:summary:user:${userId}`,
@@ -52,10 +51,10 @@ export function buildPushEvents(db: Db, push: PushService): EngineEvents {
       }
     },
 
-    onRoundOpened(roundId) {
-      const round = db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+    async onRoundOpened(roundId: number) {
+      const [round] = await db.select().from(rounds).where(eq(rounds.id, roundId));
       if (!round) return;
-      for (const userId of allUserIds()) {
+      for (const userId of await allUserIds()) {
         fire(
           push.sendEvent({
             eventKey: `round:${roundId}:open:user:${userId}`,
@@ -69,13 +68,13 @@ export function buildPushEvents(db: Db, push: PushService): EngineEvents {
       }
     },
 
-    onFixturePostponed(fixtureId) {
-      const label = fixtureLabel(fixtureId);
-      const fixture = db.select().from(fixtures).where(eq(fixtures.id, fixtureId)).get();
+    async onFixturePostponed(fixtureId: number) {
+      const label = await fixtureLabel(fixtureId);
+      const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
       // The kickoff in the key distinguishes a second postponement (after a
       // reschedule) from the first — each deserves its own notification.
       const nonce = fixture?.kickoffAt.getTime() ?? 0;
-      for (const userId of allUserIds()) {
+      for (const userId of await allUserIds()) {
         fire(
           push.sendEvent({
             eventKey: `fixture:${fixtureId}:postponed:${nonce}:user:${userId}`,
@@ -89,13 +88,13 @@ export function buildPushEvents(db: Db, push: PushService): EngineEvents {
       }
     },
 
-    onCompletionScheduled(fixtureId) {
-      const fixture = db.select().from(fixtures).where(eq(fixtures.id, fixtureId)).get();
+    async onCompletionScheduled(fixtureId: number) {
+      const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
       if (!fixture) return;
-      const label = fixtureLabel(fixtureId);
+      const label = await fixtureLabel(fixtureId);
       const windowAlreadyOpen =
         fixture.predictionOpenAt !== null && fixture.predictionOpenAt.getTime() <= Date.now();
-      for (const userId of allUserIds()) {
+      for (const userId of await allUserIds()) {
         fire(
           push.sendEvent({
             eventKey: `fixture:${fixtureId}:rescheduled:${fixture.kickoffAt.getTime()}:user:${userId}`,
@@ -110,5 +109,14 @@ export function buildPushEvents(db: Db, push: PushService): EngineEvents {
         );
       }
     },
+  };
+
+  // The engine fires these without awaiting, so none of them may reject:
+  // a notification that fails must never take down the action that caused it.
+  return {
+    onRoundClosed: (roundId) => fire(handlers.onRoundClosed(roundId)),
+    onRoundOpened: (roundId) => fire(handlers.onRoundOpened(roundId)),
+    onFixturePostponed: (fixtureId) => fire(handlers.onFixturePostponed(fixtureId)),
+    onCompletionScheduled: (fixtureId) => fire(handlers.onCompletionScheduled(fixtureId)),
   };
 }
