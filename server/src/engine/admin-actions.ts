@@ -12,30 +12,30 @@ import type { EngineCtx } from './types.js';
  * If the fixture is already finished, points are recomputed and closed-round
  * snapshots healed.
  */
-export function adminFixPrediction(
+export async function adminFixPrediction(
   ctx: EngineCtx,
   input: { userId: number; fixtureId: number; homePred: number; awayPred: number },
   actor: Actor,
-): void {
+): Promise<void> {
   const { db } = ctx;
-  const fixture = db.select().from(fixtures).where(eq(fixtures.id, input.fixtureId)).get();
+  const [fixture] = await db.select().from(fixtures).where(eq(fixtures.id, input.fixtureId));
   if (!fixture) throw notFound('המשחק לא נמצא');
   if (fixture.status === 'cancelled' || fixture.status === 'postponed') {
     throw badRequest('FIXTURE_NOT_PREDICTABLE', 'אין ניחושים למשחק דחוי או מבוטל');
   }
-  const user = db.select().from(users).where(eq(users.id, input.userId)).get();
+  const [user] = await db.select().from(users).where(eq(users.id, input.userId));
   if (!user) throw notFound('המשתמש לא נמצא');
 
-  const existing = db
-    .select()
-    .from(predictions)
-    .where(eq(predictions.fixtureId, input.fixtureId))
-    .all()
-    .find((p) => p.userId === input.userId);
+  const existing = (
+    await db
+      .select()
+      .from(predictions)
+      .where(eq(predictions.fixtureId, input.fixtureId))
+  ).find((p) => p.userId === input.userId);
 
-  db.transaction(() => {
+  await db.transaction(async (tx) => {
     const now = ctx.clock.now();
-    db.insert(predictions)
+    await tx.insert(predictions)
       .values({
         userId: input.userId,
         fixtureId: input.fixtureId,
@@ -46,10 +46,9 @@ export function adminFixPrediction(
       .onConflictDoUpdate({
         target: [predictions.userId, predictions.fixtureId],
         set: { homePred: input.homePred, awayPred: input.awayPred, updatedAt: now },
-      })
-      .run();
-    audit(
-      db,
+      });
+    await audit(
+      tx,
       actor,
       'prediction.admin_fixed',
       'prediction',
@@ -58,13 +57,13 @@ export function adminFixPrediction(
       { homePred: input.homePred, awayPred: input.awayPred },
     );
     if (fixture.status === 'finished') {
-      recomputeFixtureScores(ctx, fixture);
+      await recomputeFixtureScores({ ...ctx, db: tx }, fixture);
     }
   });
 
   if (fixture.status === 'finished') {
-    const round = db.select().from(rounds).where(eq(rounds.id, fixture.roundId)).get();
-    if (round?.status === 'closed') recomputeClosedRounds(ctx, round.seasonId);
+    const [round] = await db.select().from(rounds).where(eq(rounds.id, fixture.roundId));
+    if (round?.status === 'closed') await recomputeClosedRounds(ctx, round.seasonId);
   }
 }
 
@@ -74,40 +73,40 @@ export function adminFixPrediction(
  * Closed-round snapshots are healed so past ranks make sense without them;
  * season honors and the audit log keep their denormalized name.
  */
-export function adminDeleteUser(ctx: EngineCtx, targetUserId: number, actor: Actor): { avatarPath: string | null } {
+export async function adminDeleteUser(ctx: EngineCtx, targetUserId: number, actor: Actor): Promise<{ avatarPath: string | null }> {
   const { db } = ctx;
-  const target = db.select().from(users).where(eq(users.id, targetUserId)).get();
+  const [target] = await db.select().from(users).where(eq(users.id, targetUserId));
   if (!target) throw notFound('המשתמש לא נמצא');
   if (actor.id === target.id) throw badRequest('CANNOT_DELETE_SELF', 'מנהל לא יכול למחוק את עצמו');
 
-  db.transaction(() => {
-    db.delete(users).where(eq(users.id, target.id)).run();
-    audit(db, actor, 'user.deleted', 'user', target.id, {
+  await db.transaction(async (tx) => {
+    await tx.delete(users).where(eq(users.id, target.id));
+    await audit(tx, actor, 'user.deleted', 'user', target.id, {
       username: target.username,
       displayName: target.displayName,
       phone: target.phone,
     }, null);
   });
 
-  const activeSeasons = db.select().from(rounds).all();
+  const activeSeasons = await db.select().from(rounds);
   const seasonIds = [...new Set(activeSeasons.map((r) => r.seasonId))];
-  for (const seasonId of seasonIds) recomputeClosedRounds(ctx, seasonId);
+  for (const seasonId of seasonIds) await recomputeClosedRounds(ctx, seasonId);
 
   return { avatarPath: target.avatarPath };
 }
 
-export function adminSetRole(
+export async function adminSetRole(
   ctx: EngineCtx,
   targetUserId: number,
   role: 'USER' | 'ADMIN',
   actor: Actor,
-): void {
+): Promise<void> {
   const { db } = ctx;
-  const target = db.select().from(users).where(eq(users.id, targetUserId)).get();
+  const [target] = await db.select().from(users).where(eq(users.id, targetUserId));
   if (!target) throw notFound('המשתמש לא נמצא');
   if (actor.id === target.id && role !== 'ADMIN') {
     throw badRequest('CANNOT_DEMOTE_SELF', 'מנהל לא יכול להוריד את ההרשאות של עצמו');
   }
-  db.update(users).set({ role }).where(eq(users.id, target.id)).run();
-  audit(db, actor, 'user.role_changed', 'user', target.id, { role: target.role }, { role });
+  await db.update(users).set({ role }).where(eq(users.id, target.id));
+  await audit(db, actor, 'user.role_changed', 'user', target.id, { role: target.role }, { role });
 }

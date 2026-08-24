@@ -10,8 +10,8 @@ export interface StreakInfo {
 }
 
 /** Streaks of consecutive scored games with ≥1 point, ordered by kickoff. */
-export function computeStreaks(db: Db, seasonId: number): Map<number, StreakInfo> {
-  const rows = db
+export async function computeStreaks(db: Db, seasonId: number): Promise<Map<number, StreakInfo>> {
+  const rows = await db
     .select({
       userId: predictionScores.userId,
       points: predictionScores.points,
@@ -21,8 +21,7 @@ export function computeStreaks(db: Db, seasonId: number): Map<number, StreakInfo
     .from(predictionScores)
     .innerJoin(fixtures, eq(predictionScores.fixtureId, fixtures.id))
     .where(eq(predictionScores.seasonId, seasonId))
-    .orderBy(asc(fixtures.kickoffAt), asc(predictionScores.fixtureId))
-    .all();
+    .orderBy(asc(fixtures.kickoffAt), asc(predictionScores.fixtureId));
 
   const byUser = new Map<number, StreakInfo & { run: number }>();
   for (const row of rows) {
@@ -53,7 +52,7 @@ const HOT_STREAK_MIN = 3;
  *  - Latest closed round's persisted titles: 👑 winner, 🧙 prophet, 💀 black, 🚀 climber
  * A player can hold several titles at once (league rule).
  */
-export function computeCurrentTitles(db: Db, seasonId: number): Map<number, TitleCode[]> {
+export async function computeCurrentTitles(db: Db, seasonId: number): Promise<Map<number, TitleCode[]>> {
   const titles = new Map<number, TitleCode[]>();
   const add = (userId: number, code: TitleCode) => {
     const list = titles.get(userId) ?? [];
@@ -61,7 +60,7 @@ export function computeCurrentTitles(db: Db, seasonId: number): Map<number, Titl
     titles.set(userId, list);
   };
 
-  const totals = computeSeasonTotals(db, seasonId);
+  const totals = await computeSeasonTotals(db, seasonId);
   for (const entry of totals) {
     if (entry.rank === 1 && entry.points > 0) add(entry.userId, 'leader');
   }
@@ -73,7 +72,7 @@ export function computeCurrentTitles(db: Db, seasonId: number): Map<number, Titl
     }
   }
 
-  const streaks = computeStreaks(db, seasonId);
+  const streaks = await computeStreaks(db, seasonId);
   const maxStreak = Math.max(0, ...[...streaks.values()].map((s) => s.current));
   if (maxStreak >= HOT_STREAK_MIN) {
     for (const [userId, info] of streaks) {
@@ -81,18 +80,16 @@ export function computeCurrentTitles(db: Db, seasonId: number): Map<number, Titl
     }
   }
 
-  const latestClosed = db
+  const [latestClosed] = await db
     .select()
     .from(rounds)
     .where(and(eq(rounds.seasonId, seasonId), eq(rounds.status, 'closed')))
-    .orderBy(desc(rounds.number))
-    .get();
+    .orderBy(desc(rounds.number));
   if (latestClosed) {
-    for (const row of db
+    for (const row of await db
       .select()
       .from(roundTitles)
-      .where(eq(roundTitles.roundId, latestClosed.id))
-      .all()) {
+      .where(eq(roundTitles.roundId, latestClosed.id))) {
       add(row.userId, row.titleCode as TitleCode);
     }
   }

@@ -7,17 +7,17 @@ import type { EngineCtx } from './types.js';
 
 const COMPLETION_REOPEN_MS = 7 * 24 * 60 * 60 * 1000;
 
-function getFixtureOrThrow(ctx: EngineCtx, fixtureId: number) {
-  const fixture = ctx.db.select().from(fixtures).where(eq(fixtures.id, fixtureId)).get();
+async function getFixtureOrThrow(ctx: EngineCtx, fixtureId: number) {
+  const [fixture] = await ctx.db.select().from(fixtures).where(eq(fixtures.id, fixtureId));
   if (!fixture) throw notFound('המשחק לא נמצא');
   return fixture;
 }
 
 /** Copies a fixture's predictions into the audit log, then deletes them (league rule: voided). */
-function voidPredictions(ctx: EngineCtx, fixtureId: number, actor: Actor, reason: string): void {
-  const rows = ctx.db.select().from(predictions).where(eq(predictions.fixtureId, fixtureId)).all();
+async function voidPredictions(ctx: EngineCtx, fixtureId: number, actor: Actor, reason: string): Promise<void> {
+  const rows = await ctx.db.select().from(predictions).where(eq(predictions.fixtureId, fixtureId));
   if (rows.length > 0) {
-    audit(
+    await audit(
       ctx.db,
       actor,
       reason,
@@ -26,9 +26,9 @@ function voidPredictions(ctx: EngineCtx, fixtureId: number, actor: Actor, reason
       rows.map((p) => ({ userId: p.userId, homePred: p.homePred, awayPred: p.awayPred })),
       null,
     );
-    ctx.db.delete(predictions).where(eq(predictions.fixtureId, fixtureId)).run();
+    await ctx.db.delete(predictions).where(eq(predictions.fixtureId, fixtureId));
   }
-  ctx.db.delete(predictionScores).where(eq(predictionScores.fixtureId, fixtureId)).run();
+  await ctx.db.delete(predictionScores).where(eq(predictionScores.fixtureId, fixtureId));
 }
 
 /**
@@ -36,25 +36,24 @@ function voidPredictions(ctx: EngineCtx, fixtureId: number, actor: Actor, reason
  * round's accounting (the round can close without it), and the round lock
  * moves if this was the earliest kickoff and the round hasn't locked yet.
  */
-export function postponeFixture(ctx: EngineCtx, fixtureId: number, actor: Actor): void {
-  const fixture = getFixtureOrThrow(ctx, fixtureId);
+export async function postponeFixture(ctx: EngineCtx, fixtureId: number, actor: Actor): Promise<void> {
+  const fixture = await getFixtureOrThrow(ctx, fixtureId);
   if (fixture.status !== 'scheduled' && fixture.status !== 'live') {
     throw badRequest('FIXTURE_NOT_POSTPONABLE', 'ניתן לדחות רק משחק שטרם הסתיים');
   }
 
-  ctx.db.transaction(() => {
-    voidPredictions(ctx, fixture.id, actor, 'fixture.postponed_predictions_voided');
-    ctx.db
+  await ctx.db.transaction(async (tx) => {
+    await voidPredictions({ ...ctx, db: tx }, fixture.id, actor, 'fixture.postponed_predictions_voided');
+    await tx
       .update(fixtures)
       .set({ status: 'postponed', homeScore: null, awayScore: null, liveMinute: null })
-      .where(eq(fixtures.id, fixture.id))
-      .run();
-    recomputeRoundLock(ctx, fixture.roundId);
-    audit(ctx.db, actor, 'fixture.postponed', 'fixture', fixture.id, { status: fixture.status }, { status: 'postponed' });
+      .where(eq(fixtures.id, fixture.id));
+    await recomputeRoundLock({ ...ctx, db: tx }, fixture.roundId);
+    await audit(tx, actor, 'fixture.postponed', 'fixture', fixture.id, { status: fixture.status }, { status: 'postponed' });
   });
 
   ctx.events?.onFixturePostponed(fixture.id);
-  maybeCloseRound(ctx, fixture.roundId);
+  await maybeCloseRound(ctx, fixture.roundId);
 }
 
 /**
@@ -62,13 +61,13 @@ export function postponeFixture(ctx: EngineCtx, fixtureId: number, actor: Actor)
  * השלמה): predictions reopen 7 days before the new kickoff, stay private
  * until that kickoff, and its points join the season total when it ends.
  */
-export function rescheduleFixture(
+export async function rescheduleFixture(
   ctx: EngineCtx,
   fixtureId: number,
   newKickoffMs: number,
   actor: Actor,
-): void {
-  const fixture = getFixtureOrThrow(ctx, fixtureId);
+): Promise<void> {
+  const fixture = await getFixtureOrThrow(ctx, fixtureId);
   if (fixture.status !== 'postponed') {
     throw badRequest('FIXTURE_NOT_POSTPONED', 'ניתן לקבוע מועד חדש רק למשחק דחוי');
   }
@@ -76,8 +75,8 @@ export function rescheduleFixture(
     throw badRequest('KICKOFF_IN_PAST', 'המועד החדש חייב להיות בעתיד');
   }
 
-  ctx.db.transaction(() => {
-    ctx.db
+  await ctx.db.transaction(async (tx) => {
+    await tx
       .update(fixtures)
       .set({
         status: 'scheduled',
@@ -89,10 +88,9 @@ export function rescheduleFixture(
         liveMinute: null,
         finalizedAt: null,
       })
-      .where(eq(fixtures.id, fixture.id))
-      .run();
-    recomputeRoundLock(ctx, fixture.roundId);
-    audit(ctx.db, actor, 'fixture.rescheduled', 'fixture', fixture.id, {
+      .where(eq(fixtures.id, fixture.id));
+    await recomputeRoundLock({ ...ctx, db: tx }, fixture.roundId);
+    await audit(tx, actor, 'fixture.rescheduled', 'fixture', fixture.id, {
       kickoffAt: fixture.kickoffAt.getTime(),
     }, { kickoffAt: newKickoffMs, isCompletion: true });
   });
@@ -101,22 +99,21 @@ export function rescheduleFixture(
 }
 
 /** A cancelled game never awards points; its predictions are voided. */
-export function cancelFixture(ctx: EngineCtx, fixtureId: number, actor: Actor): void {
-  const fixture = getFixtureOrThrow(ctx, fixtureId);
+export async function cancelFixture(ctx: EngineCtx, fixtureId: number, actor: Actor): Promise<void> {
+  const fixture = await getFixtureOrThrow(ctx, fixtureId);
   if (fixture.status === 'finished' || fixture.status === 'cancelled') {
     throw badRequest('FIXTURE_NOT_CANCELLABLE', 'לא ניתן לבטל משחק שכבר הסתיים');
   }
 
-  ctx.db.transaction(() => {
-    voidPredictions(ctx, fixture.id, actor, 'fixture.cancelled_predictions_voided');
-    ctx.db
+  await ctx.db.transaction(async (tx) => {
+    await voidPredictions({ ...ctx, db: tx }, fixture.id, actor, 'fixture.cancelled_predictions_voided');
+    await tx
       .update(fixtures)
       .set({ status: 'cancelled', homeScore: null, awayScore: null, liveMinute: null })
-      .where(eq(fixtures.id, fixture.id))
-      .run();
-    recomputeRoundLock(ctx, fixture.roundId);
-    audit(ctx.db, actor, 'fixture.cancelled', 'fixture', fixture.id, { status: fixture.status }, { status: 'cancelled' });
+      .where(eq(fixtures.id, fixture.id));
+    await recomputeRoundLock({ ...ctx, db: tx }, fixture.roundId);
+    await audit(tx, actor, 'fixture.cancelled', 'fixture', fixture.id, { status: fixture.status }, { status: 'cancelled' });
   });
 
-  maybeCloseRound(ctx, fixture.roundId);
+  await maybeCloseRound(ctx, fixture.roundId);
 }

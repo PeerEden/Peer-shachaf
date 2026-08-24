@@ -14,8 +14,8 @@ const TERMINAL_FIXTURE_STATUSES = ['finished', 'cancelled', 'postponed'] as cons
  * fixtures that still count. Must be called inside any flow that creates,
  * reschedules, postpones or deletes a fixture.
  */
-export function recomputeRoundLock(ctx: EngineCtx, roundId: number): void {
-  const round = ctx.db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+export async function recomputeRoundLock(ctx: EngineCtx, roundId: number): Promise<void> {
+  const [round] = await ctx.db.select().from(rounds).where(eq(rounds.id, roundId));
   if (!round) return;
   // A lock that already fired is a historical fact: predictions were revealed
   // to everyone at that moment. It must never move (e.g. when the earliest
@@ -23,14 +23,14 @@ export function recomputeRoundLock(ctx: EngineCtx, roundId: number): void {
   // everyone saw each other's picks.
   if (round.lockAt !== null && round.lockAt.getTime() <= ctx.clock.now().getTime()) return;
 
-  const fx = ctx.db.select().from(fixtures).where(eq(fixtures.roundId, roundId)).all();
+  const fx = await ctx.db.select().from(fixtures).where(eq(fixtures.roundId, roundId));
   const relevant = fx.filter(
     (f) => !f.isCompletion && f.status !== 'postponed' && f.status !== 'cancelled',
   );
   const lockAt = relevant.length
     ? new Date(Math.min(...relevant.map((f) => f.kickoffAt.getTime())))
     : null;
-  ctx.db.update(rounds).set({ lockAt }).where(eq(rounds.id, roundId)).run();
+  await ctx.db.update(rounds).set({ lockAt }).where(eq(rounds.id, roundId));
 }
 
 /** Can this user still enter/change a prediction for this fixture right now? */
@@ -79,45 +79,42 @@ export function deriveRoundState(
  * Completion games never block their (already once-closed or still-open)
  * round. Returns true when the round transitioned to closed.
  */
-export function maybeCloseRound(ctx: EngineCtx, roundId: number): boolean {
-  const round = ctx.db.select().from(rounds).where(eq(rounds.id, roundId)).get();
+export async function maybeCloseRound(ctx: EngineCtx, roundId: number): Promise<boolean> {
+  const [round] = await ctx.db.select().from(rounds).where(eq(rounds.id, roundId));
   if (!round || round.status !== 'open') return false;
 
-  const fx = ctx.db.select().from(fixtures).where(eq(fixtures.roundId, roundId)).all();
+  const fx = await ctx.db.select().from(fixtures).where(eq(fixtures.roundId, roundId));
   const relevant = fx.filter((f) => !f.isCompletion);
   if (relevant.length === 0) return false;
   if (!relevant.every((f) => (TERMINAL_FIXTURE_STATUSES as readonly string[]).includes(f.status))) {
     return false;
   }
 
-  ctx.db.transaction(() => {
-    writeRoundSnapshot(ctx, round);
-    ctx.db
+  await ctx.db.transaction(async (tx) => {
+    await writeRoundSnapshot({ ...ctx, db: tx }, round);
+    await tx
       .update(rounds)
       .set({ status: 'closed', closedAt: ctx.clock.now() })
-      .where(eq(rounds.id, round.id))
-      .run();
+      .where(eq(rounds.id, round.id));
   });
   ctx.events?.onRoundClosed(round.id);
 
-  openNextRound(ctx, round.seasonId);
+  await openNextRound(ctx, round.seasonId);
   return true;
 }
 
 /** Opens the lowest-numbered pending round (the spec: next window opens at final whistle). */
-export function openNextRound(ctx: EngineCtx, seasonId: number): number | null {
-  const next = ctx.db
+export async function openNextRound(ctx: EngineCtx, seasonId: number): Promise<number | null> {
+  const [next] = await ctx.db
     .select()
     .from(rounds)
     .where(and(eq(rounds.seasonId, seasonId), eq(rounds.status, 'pending')))
-    .orderBy(asc(rounds.number))
-    .get();
+    .orderBy(asc(rounds.number));
   if (!next) return null;
-  ctx.db
+  await ctx.db
     .update(rounds)
     .set({ status: 'open', openedAt: ctx.clock.now() })
-    .where(eq(rounds.id, next.id))
-    .run();
+    .where(eq(rounds.id, next.id));
   ctx.events?.onRoundOpened(next.id);
   return next.id;
 }
@@ -127,29 +124,29 @@ export function openNextRound(ctx: EngineCtx, seasonId: number): number | null {
  * (round_user_stats) and the persisted round titles. Idempotent: deletes and
  * rewrites, so admin corrections can heal snapshots via recomputeClosedRounds.
  */
-export function writeRoundSnapshot(ctx: EngineCtx, round: RoundRow): void {
+export async function writeRoundSnapshot(ctx: EngineCtx, round: RoundRow): Promise<void> {
   const { db } = ctx;
-  const roundTotals = computeRoundTotals(db, round.id);
+  const roundTotals = await computeRoundTotals(db, round.id);
   // Completion games count toward a snapshot only if they were finalized
   // before this round's close moment (at first close: now).
   const completionCutoff = round.closedAt ?? ctx.clock.now();
-  const seasonRanked = computeSeasonTotalsUpToRound(db, round.seasonId, round.number, completionCutoff);
+  const seasonRanked = await computeSeasonTotalsUpToRound(db, round.seasonId, round.number, completionCutoff);
   const seasonByUser = new Map(seasonRanked.map((t) => [t.userId, t]));
 
-  const prevRound = db
-    .select()
-    .from(rounds)
-    .where(and(eq(rounds.seasonId, round.seasonId), eq(rounds.status, 'closed')))
-    .all()
+  const prevRound = (
+    await db
+      .select()
+      .from(rounds)
+      .where(and(eq(rounds.seasonId, round.seasonId), eq(rounds.status, 'closed')))
+  )
     .filter((r) => r.number < round.number)
     .sort((a, b) => b.number - a.number)[0];
   const prevRanks = new Map<number, number>();
   if (prevRound) {
-    for (const row of db
+    for (const row of await db
       .select()
       .from(roundUserStats)
-      .where(eq(roundUserStats.roundId, prevRound.id))
-      .all()) {
+      .where(eq(roundUserStats.roundId, prevRound.id))) {
       prevRanks.set(row.userId, row.rankAfter);
     }
   }
@@ -160,20 +157,20 @@ export function writeRoundSnapshot(ctx: EngineCtx, round: RoundRow): void {
   const minRoundPoints = sortedRound[sortedRound.length - 1]?.points ?? 0;
   const maxExactInRound = Math.max(0, ...sortedRound.map((t) => t.exactCount));
 
-  db.delete(roundUserStats).where(eq(roundUserStats.roundId, round.id)).run();
-  db.delete(roundTitles).where(eq(roundTitles.roundId, round.id)).run();
+  await db.delete(roundUserStats).where(eq(roundUserStats.roundId, round.id));
+  await db.delete(roundTitles).where(eq(roundTitles.roundId, round.id));
 
   const now = ctx.clock.now();
   const climbers: Array<{ userId: number; movement: number }> = [];
 
-  sortedRound.forEach((entry, i) => {
+  for (const [i, entry] of sortedRound.entries()) {
     const season = seasonByUser.get(entry.userId);
     const rankAfter = season?.rank ?? sortedRound.length;
     const rankBefore = prevRanks.get(entry.userId) ?? null;
     const movement = rankBefore === null ? null : rankBefore - rankAfter;
     if (movement !== null && movement > 0) climbers.push({ userId: entry.userId, movement });
 
-    db.insert(roundUserStats)
+    await db.insert(roundUserStats)
       .values({
         roundId: round.id,
         userId: entry.userId,
@@ -186,25 +183,23 @@ export function writeRoundSnapshot(ctx: EngineCtx, round: RoundRow): void {
         rankAfter,
         rankBefore,
         movement,
-      })
-      .run();
-  });
+      });
+  }
 
-  const awardTitle = (userId: number, titleCode: string) => {
-    db.insert(roundTitles)
-      .values({ seasonId: round.seasonId, roundId: round.id, userId, titleCode, awardedAt: now })
-      .run();
+  const awardTitle = async (userId: number, titleCode: string) => {
+    await db.insert(roundTitles)
+      .values({ seasonId: round.seasonId, roundId: round.id, userId, titleCode, awardedAt: now });
   };
 
   for (const entry of sortedRound) {
-    if (maxRoundPoints > 0 && entry.points === maxRoundPoints) awardTitle(entry.userId, 'round_winner');
-    if (maxExactInRound > 0 && entry.exactCount === maxExactInRound) awardTitle(entry.userId, 'round_prophet');
-    if (minRoundPoints < maxRoundPoints && entry.points === minRoundPoints) awardTitle(entry.userId, 'black_round');
+    if (maxRoundPoints > 0 && entry.points === maxRoundPoints) await awardTitle(entry.userId, 'round_winner');
+    if (maxExactInRound > 0 && entry.exactCount === maxExactInRound) await awardTitle(entry.userId, 'round_prophet');
+    if (minRoundPoints < maxRoundPoints && entry.points === minRoundPoints) await awardTitle(entry.userId, 'black_round');
   }
   if (climbers.length > 0) {
     const best = Math.max(...climbers.map((c) => c.movement));
     for (const c of climbers) {
-      if (c.movement === best) awardTitle(c.userId, 'climber');
+      if (c.movement === best) await awardTitle(c.userId, 'climber');
     }
   }
 }
@@ -213,29 +208,27 @@ export function writeRoundSnapshot(ctx: EngineCtx, round: RoundRow): void {
  * Heals every closed round's snapshot in order — called after an admin
  * corrects a result belonging to an already-closed round.
  */
-export function recomputeClosedRounds(ctx: EngineCtx, seasonId: number): void {
-  const closed = ctx.db
+export async function recomputeClosedRounds(ctx: EngineCtx, seasonId: number): Promise<void> {
+  const closed = await ctx.db
     .select()
     .from(rounds)
     .where(and(eq(rounds.seasonId, seasonId), eq(rounds.status, 'closed')))
-    .orderBy(asc(rounds.number))
-    .all();
-  ctx.db.transaction(() => {
-    for (const round of closed) writeRoundSnapshot(ctx, round);
+    .orderBy(asc(rounds.number));
+  await ctx.db.transaction(async (tx) => {
+    for (const round of closed) await writeRoundSnapshot({ ...ctx, db: tx }, round);
   });
 }
 
-export function getRoundFixtures(ctx: EngineCtx, roundId: number): FixtureRow[] {
-  return ctx.db
+export async function getRoundFixtures(ctx: EngineCtx, roundId: number): Promise<FixtureRow[]> {
+  return await ctx.db
     .select()
     .from(fixtures)
     .where(eq(fixtures.roundId, roundId))
-    .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id))
-    .all();
+    .orderBy(asc(fixtures.kickoffAt), asc(fixtures.id));
 }
 
-export function getRoundsByIds(ctx: EngineCtx, ids: number[]): Map<number, RoundRow> {
+export async function getRoundsByIds(ctx: EngineCtx, ids: number[]): Promise<Map<number, RoundRow>> {
   if (ids.length === 0) return new Map();
-  const rows = ctx.db.select().from(rounds).where(inArray(rounds.id, ids)).all();
+  const rows = await ctx.db.select().from(rounds).where(inArray(rounds.id, ids));
   return new Map(rows.map((r) => [r.id, r]));
 }

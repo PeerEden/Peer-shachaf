@@ -31,12 +31,12 @@ export function assignSharedRanks<T>(sortedDesc: T[], score: (item: T) => number
   return ranks;
 }
 
-function totalsFromRows(
+async function totalsFromRows(
   db: Db,
   rows: Array<{ userId: number; points: number; isExact: boolean; isOutcome: boolean }>,
-): UserTotals[] {
+): Promise<UserTotals[]> {
   const byUser = new Map<number, UserTotals>();
-  for (const user of db.select().from(users).all()) {
+  for (const user of await db.select().from(users)) {
     byUser.set(user.id, { userId: user.id, points: 0, exactCount: 0, outcomeCount: 0, scoredCount: 0 });
   }
   for (const row of rows) {
@@ -54,8 +54,8 @@ function totalsFromRows(
 }
 
 /** Season totals over every score currently in the DB (completion games included). */
-export function computeSeasonTotals(db: Db, seasonId: number): RankedTotals[] {
-  const rows = db
+export async function computeSeasonTotals(db: Db, seasonId: number): Promise<RankedTotals[]> {
+  const rows = await db
     .select({
       userId: predictionScores.userId,
       points: predictionScores.points,
@@ -63,9 +63,8 @@ export function computeSeasonTotals(db: Db, seasonId: number): RankedTotals[] {
       isOutcome: predictionScores.isOutcome,
     })
     .from(predictionScores)
-    .where(eq(predictionScores.seasonId, seasonId))
-    .all();
-  return rankTotals(totalsFromRows(db, rows));
+    .where(eq(predictionScores.seasonId, seasonId));
+  return rankTotals(await totalsFromRows(db, rows));
 }
 
 /**
@@ -77,13 +76,13 @@ export function computeSeasonTotals(db: Db, seasonId: number): RankedTotals[] {
  * injecting completion points into rounds that closed before the game was
  * even played — the league rule says those points join season totals only.
  */
-export function computeSeasonTotalsUpToRound(
+export async function computeSeasonTotalsUpToRound(
   db: Db,
   seasonId: number,
   maxRoundNumber: number,
   completionCutoff: Date,
-): RankedTotals[] {
-  const rows = db
+): Promise<RankedTotals[]> {
+  const rows = await db
     .select({
       userId: predictionScores.userId,
       points: predictionScores.points,
@@ -102,9 +101,8 @@ export function computeSeasonTotalsUpToRound(
           lte(fixtures.finalizedAt, completionCutoff),
         ),
       ),
-    )
-    .all();
-  return rankTotals(totalsFromRows(db, rows));
+    );
+  return rankTotals(await totalsFromRows(db, rows));
 }
 
 function rankTotals(totals: UserTotals[]): RankedTotals[] {
@@ -114,8 +112,8 @@ function rankTotals(totals: UserTotals[]): RankedTotals[] {
 }
 
 /** Per-user stats for one round, excluding completion-game scores (frozen summary rule). */
-export function computeRoundTotals(db: Db, roundId: number): UserTotals[] {
-  const rows = db
+export async function computeRoundTotals(db: Db, roundId: number): Promise<UserTotals[]> {
+  const rows = await db
     .select({
       userId: predictionScores.userId,
       points: predictionScores.points,
@@ -123,7 +121,6 @@ export function computeRoundTotals(db: Db, roundId: number): UserTotals[] {
       isOutcome: predictionScores.isOutcome,
     })
     .from(predictionScores)
-    .where(and(eq(predictionScores.roundId, roundId), eq(predictionScores.isCompletion, false)))
-    .all();
-  return totalsFromRows(db, rows);
+    .where(and(eq(predictionScores.roundId, roundId), eq(predictionScores.isCompletion, false)));
+  return await totalsFromRows(db, rows);
 }
