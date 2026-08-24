@@ -23,10 +23,10 @@ export function clearSessionCookie(res: Response): void {
 
 /** Resolves the session cookie into req.user on every request (never rejects). */
 export function attachUser(db: Db, clock: Clock): RequestHandler {
-  return (req: Request, _res: Response, next: NextFunction) => {
+  return async (req: Request, _res: Response, next: NextFunction) => {
     const token = (req.cookies as Record<string, string | undefined>)[SESSION_COOKIE];
     if (token) {
-      const resolved = resolveSession(db, clock, token);
+      const resolved = await resolveSession(db, clock, token);
       if (resolved) {
         req.user = resolved.user;
         req.sessionRowId = resolved.sessionRowId;

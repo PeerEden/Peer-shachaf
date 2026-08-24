@@ -7,8 +7,8 @@ import { createTestApp, registerAgent, TEST_INVITE, type TestContext } from '../
 describe('auth', () => {
   let ctx: TestContext;
 
-  beforeEach(() => {
-    ctx = createTestApp();
+  beforeEach(async () => {
+    ctx = await createTestApp();
   });
 
   it('registers with a valid invite code and starts a session', async () => {
@@ -33,7 +33,7 @@ describe('auth', () => {
 
     // The session vanishes underneath the user: expired, purged, or served by
     // an instance that never had it. Logging out must still work.
-    ctx.db.delete(sessions).run();
+    await ctx.db.delete(sessions);
 
     const res = await agent.post('/api/auth/logout');
     expect(res.status).toBe(200);
@@ -153,7 +153,7 @@ describe('auth', () => {
 
   it('keeps user rows with hashed passwords only', async () => {
     await registerAgent(ctx, 'dror', { password: 'secret123' });
-    const row = ctx.db.select().from(users).where(eq(users.username, 'dror')).get()!;
+    const row = (await ctx.db.select().from(users).where(eq(users.username, 'dror')))[0]!;
     expect(row.passwordHash).not.toContain('secret123');
     expect(row.passwordHash.startsWith('$2')).toBe(true);
   });
